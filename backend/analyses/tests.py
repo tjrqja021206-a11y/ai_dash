@@ -42,6 +42,7 @@ def fake_video(name="clip.mp4"):
     MEDIA_ROOT=TEMP_MEDIA,
     CELERY_TASK_ALWAYS_EAGER=True,
     ALLOWED_CAMERAS={"phone": "http://192.168.0.10:8080/video"},
+    CAMERA_ROTATION={"phone": 90},
 )
 class AnalysisApiTests(TestCase):
     @classmethod
@@ -197,6 +198,74 @@ class AnalysisApiTests(TestCase):
         self.assertIn("카메라", job.error_message)
         capture.assert_called_once()
         self.assertEqual(capture.call_args.args[0], "http://192.168.0.10:8080/video")
+        self.assertEqual(capture.call_args.kwargs["rotate"], 90)  # CAMERA_ROTATION 전달
+
+
+def _jpeg(width=64, height=32):
+    import cv2
+    import numpy as np
+
+    return cv2.imencode(".jpg", np.zeros((height, width, 3), np.uint8))[1].tobytes()
+
+
+@override_settings(
+    ALLOWED_CAMERAS={"phone": "http://192.168.0.10:8080/video"},
+    CAMERA_ROTATION={"phone": 90},
+)
+class CameraPreviewTests(TestCase):
+    """실시간 미리보기: 허용 카메라만, 회전 적용, AI 서버 판정 헤더 전달."""
+
+    URL = "/api/v1/analyses/cameras/{}/preview/"
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(User.objects.create_user("cam", password="pw-cam-123"))
+
+    def test_login_required(self):
+        self.assertEqual(APIClient().get(self.URL.format("phone")).status_code, 403)
+
+    def test_unknown_camera_rejected(self):
+        self.assertEqual(self.client.get(self.URL.format("evil")).status_code, 404)
+
+    @mock.patch("analyses.camera_preview.requests.post")
+    @mock.patch("analyses.camera_preview.requests.get")
+    def test_returns_annotated_jpeg_with_pose_status(self, get, post):
+        get.return_value = mock.Mock(status_code=200, content=_jpeg(), raise_for_status=lambda: None)
+        post.return_value = mock.Mock(
+            status_code=200, content=b"annotated",
+            headers={"X-Pose-Status": "legs_missing", "X-Pose-Keypoint-Conf": "0.71"},
+        )
+        response = self.client.get(self.URL.format("phone"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertEqual(response.content, b"annotated")
+        self.assertEqual(response["X-Pose-Status"], "legs_missing")
+        get.assert_called_once()
+        self.assertEqual(get.call_args.args[0], "http://192.168.0.10:8080/shot.jpg")
+
+    @mock.patch("analyses.camera_preview.requests.post")
+    @mock.patch("analyses.camera_preview.requests.get")
+    def test_rotates_frame_and_works_without_ai(self, get, post):
+        import cv2
+        import numpy as np
+        import requests
+
+        get.return_value = mock.Mock(status_code=200, content=_jpeg(64, 32), raise_for_status=lambda: None)
+        post.side_effect = requests.ConnectionError()
+        response = self.client.get(self.URL.format("phone"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["X-Pose-Status"], "unknown")
+        frame = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_COLOR)
+        self.assertEqual(frame.shape[:2], (64, 32))  # 가로 64×세로 32 → 90° 회전 후 세로 64
+
+    @mock.patch("analyses.camera_preview.requests.get")
+    def test_camera_down_returns_502(self, get):
+        import requests
+
+        get.side_effect = requests.ConnectionError()
+        response = self.client.get(self.URL.format("phone"))
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("카메라", response.json()["detail"])
 
 
 @override_settings(FASTAPI_RETRIES=2, FASTAPI_RETRY_DELAY_SECONDS=0)

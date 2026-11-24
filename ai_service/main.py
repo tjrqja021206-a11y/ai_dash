@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 
 from routers import predictions
 from services.action_inference import ActionInferenceService
+from services.live_pose import LivePose
 from services.model_loader import load_bundle
 
 logger = logging.getLogger("uvicorn.error")
@@ -24,10 +25,18 @@ logger = logging.getLogger("uvicorn.error")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.service = None
+    app.state.live = None
     app.state.load_error = None
     try:
         bundle = load_bundle()
         app.state.service = ActionInferenceService(bundle)
+        # 카메라 미리보기 전용 YOLO (영상 분석과 따로 돌아가게 별도 객체)
+        app.state.live = LivePose(
+            bundle.pose_model_path,
+            app.state.service.pipeline.device,
+            int(bundle.project.get("image_size", 640)),
+            float(bundle.project.get("person_confidence", 0.25)),
+        )
         logger.info("모델 준비 완료: %s", bundle.summary()["condition"])
     except Exception as error:  # 모델이 없어도 서버는 떠서 /health로 원인을 보여줌
         app.state.load_error = str(error)

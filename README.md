@@ -7,6 +7,7 @@
 - **입력 2가지**: ① 영상 업로드(MP4 등) ② IP Webcam에서 정해진 시간(기본 8초) 수집
 - **결과**: 영상 속 사람마다(Track ID별) 예측 동작, 신뢰도, 후보 2·3위, 판단 불확실 여부
 - **Skeleton Overlay**: 사람별 관절 뼈대와 `ID·동작·신뢰도`를 그린 결과 영상(H.264 MP4)을 결과 화면에서 재생
+- **IP Webcam 실시간 미리보기**: 카메라 화면에 관절을 그려 약 5fps로 보여 주고, 전신이 보이는지(초록/주황 테두리)·녹화 중 여부를 표시
 - **관리**: Django Admin(작업·사람별 결과 검색/필터)과 관리자 전용 `/dashboard/`(Chart.js)
 
 | 구분 | 내용 |
@@ -53,6 +54,7 @@ docker compose exec postgres psql -U vision -d vision_action -c "select id,statu
 > **GPU (선택)**: NVIDIA GPU가 있는 PC는 `.env`에 `COMPOSE_FILE=compose.yaml:compose.gpu.yaml`을 넣으면(주석 해제) 같은 `docker compose` 명령으로 fastapi가 CUDA 13.2 torch를 써서 GPU로 추론합니다. GPU가 없으면 그대로 두면 CPU로 동작합니다. 확인: `docker compose exec fastapi python -c "import torch;print(torch.cuda.is_available())"`
 
 > **IP Webcam**: 카메라는 **celery 컨테이너**가 읽습니다. 휴대폰과 PC가 같은 Wi-Fi에 있어야 하고, `.env`의 `ALLOWED_CAMERAS=phone1=http://<휴대폰IP>:8080/video`에 등록된 카메라만 선택할 수 있습니다(사용자가 임의 URL 입력 불가). 변경 후 `docker compose up -d`로 재생성합니다.
+> 휴대폰을 세로로 들었는데 미리보기에서 사람이 옆으로 누워 보이면 `.env`에 `CAMERA_ROTATION=phone1=90`(시계 방향 각도, 0/90/180/270)을 넣으세요. 수집·미리보기 단계에서 영상을 바로 세웁니다([7-3 문제 2](#7-3-겪은-문제와-해결) 참고).
 
 ### 2-2. Docker 없이 (개발용)
 
@@ -257,6 +259,9 @@ sequenceDiagram
 | `GET /health` | 없음 | `model_ready`, 클래스 목록, Feature 수 |
 | `POST /predict/video` (`/api/v1/predict/` 동일) | multipart `file`, 선택 `?overlay=true` | 아래 JSON (+ `overlay: {url, frames, fps, width, height, render_ms}`) |
 | `GET /overlay/{id}` | 없음 | Overlay MP4 (한 번 내려주면 삭제, 안 가져간 파일은 1시간 뒤 정리) |
+| `POST /pose/frame` | multipart `file` (JPEG 1장) | 관절을 그린 JPEG + 헤더 `X-Pose-Status`(`ok`·`no_person`·`core_missing`·`sideways`·`legs_missing`·`too_far`), `X-Pose-Keypoint-Conf` |
+
+**실시간 미리보기 흐름**: 브라우저(`analyses.js`)가 0.2초마다 `GET /api/v1/analyses/cameras/{이름}/preview/` → Django(`camera_preview.py`)가 허용된 카메라의 `/shot.jpg`를 받아 회전·축소 → FastAPI `/pose/frame`이 관절을 그리고 촬영 자세를 판정(영상 분석과 별도 YOLO 객체라 분석 중에도 멈추지 않음, 1장 약 30ms) → 브라우저가 테두리 색과 안내 문구로 표시. 서버가 카메라 영상을 받는 동안에는 `● 녹화 중`이 깜박입니다. 카메라 주소는 브라우저에 노출되지 않습니다.
 
 Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV 디코더로 영상을 다시 읽어 Track ID마다 다른 색으로 뼈대와 이름표를 그립니다. 긴 변 720px·30fps 이하로 줄이고 PyAV(libx264)로 H.264 인코딩합니다(OpenCV pip 빌드에는 H.264 인코더가 없음, VP8 WebM보다 9배 빠르고 파일은 1/20). Overlay 생성·전송이 실패해도 분석 결과는 SUCCESS로 저장되고, `.env`의 `ANALYSIS_OVERLAY=False`로 끌 수 있습니다.
 
@@ -312,7 +317,7 @@ Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV �
 
 **Docker Compose 환경 재확인**: 5개 컨테이너에서 S03 앞차기(S03_A003_T01) 업로드 → POST 0.34초 만에 작업 ID 반환(T05) → Celery·FastAPI 처리 후 SUCCESS, `A003 front_kick` 0.77, AI 9.9초(CPU) (T02) → 재시작 후 DB 유지(T10). 컨테이너 안에서 `docker compose exec django python manage.py test`도 14개 통과.
 
-자동 테스트: `python manage.py test` → 19개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개, Overlay 저장·실패 2개).
+자동 테스트: `python manage.py test` → 24개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개, Overlay 저장·실패 2개, 카메라 미리보기 5개).
 
 ### 7-1-1. 성능 고도화 (속도·안정성)
 
@@ -323,6 +328,8 @@ Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV �
 | AI 서버 일시 장애 | 즉시 FAILURE | 연결 실패·503(모델 로딩 중)은 **최대 3번 재시도**(3·6·9초 간격) | `analyses/services.py`, 테스트 3개 |
 | 오래 걸리는 작업 | 제한 없음 (Worker가 묶일 수 있음) | Celery `soft_time_limit`(기본 420초) 초과 시 FAILURE + 안내 메시지 | `analyses/tasks.py` |
 | 결과 화면 | 원본 영상만 재생 | **Skeleton Overlay** 영상 재생 (3.7초 60fps 영상 기준 +1.8초, 278KB) | `services/overlay.py`, 테스트 2개 |
+| IP Webcam 수집 메모리 | 1080p 원본 프레임을 모두 메모리에 (8초 약 3GB) | 받는 즉시 회전·긴 변 1280px 축소·JPEG 압축 (약 50MB) | `camera_capture.py` (Feature는 몸통 길이로 정규화되어 해상도 무관) |
+| IP Webcam 촬영 | 무엇이 찍히는지 모른 채 녹화 | **실시간 미리보기** + 전신 인식 판정 + 결과의 "입력 품질 낮음" 경고 | `camera_preview.py`, `live_pose.py`, 테스트 5개 |
 
 **측정 방법·판단**: 컨테이너 안에서 단계별 시간을 쟀더니 CPU에서는 YOLO Pose가 95%(프레임당 43ms)였고, GPU로 바꾼 뒤에는 **HDR(10bit HEVC) 휴대폰 영상의 디코딩·색 변환**이 대부분이었습니다.
 
@@ -356,6 +363,20 @@ Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV �
 3. **바꾼 것** — `pose_pipeline.resample_track()`에서 트랙을 **학습 FPS(59.88)로 시간 보간**한 뒤 Feature를 계산합니다. 카메라 수집(`camera_capture.py`)은 실제로 받은 프레임 수 ÷ 실제 시간으로 FPS를 기록해 영상 시간축이 실제와 맞게 했습니다.
 4. **확인** — 같은 15fps 영상이 **`A005 push` 0.63**으로 원본과 같은 동작이 나왔습니다.
 
+**문제 2: IP Webcam으로 분석하면 신뢰도가 매우 낮고 '눕기'로 나옴**
+
+1. **현상** — 업로드 영상은 신뢰도 0.74~0.91인데, 휴대폰 IP Webcam으로 8초 수집한 작업 #8은 `A010 lie_backward` **0.37**, 관절 신뢰도도 업로드(0.97)보다 훨씬 낮은 **0.36**이었습니다.
+2. **확인한 곳** — 저장된 수집 영상(`camera_job_8.mp4`)을 프레임별로 YOLO에 넣어 봤습니다. ① 휴대폰을 세로로 들었지만 앱이 가로로 송출해 **사람이 90° 옆으로 누운 화면**이었고, ② 너무 가까워 얼굴·상체만 보여 **17개 관절 중 12개(골반·무릎·발목)가 검출되지 않았습니다**. Feature는 y축을 '위아래'로 가정하므로(`hip_y`, 세로 속도 등) 옆으로 누운 사람은 '눕기'와 같은 값이 됩니다. 업로드 영상 3개를 일부러 90° 돌려 넣어 재현했습니다.
+
+   | 영상 (정답) | 원본 | 90° 회전 |
+   |---|---|---|
+   | S03 밀치기 (A005) | `A005 push` 0.76 | `A010 lie_backward` 0.22 |
+   | S01 앞차기 (A003) | `A003 front_kick` 0.74 | `A010 lie_backward` 0.28 |
+   | S05 키오스크 (A001) | `A001 kiosk_tap` 0.91 | `A016 fall_backward` 0.25 |
+
+3. **바꾼 것** — 모델이 아니라 **입력**을 고쳤습니다. `.env`의 `CAMERA_ROTATION`으로 카메라별 회전을 지정해 수집·미리보기 단계에서 바로 세우고, **실시간 미리보기**로 전신이 보이는지 촬영 전에 확인하게 했습니다(어깨·골반·발목 검출과 몸통 방향으로 `ok`/`core_missing`/`sideways`/`legs_missing` 판정). 결과 화면은 관절 신뢰도 0.6 미만이면 "입력 품질 낮음"과 해결 방법을 함께 보여 줍니다.
+4. **확인** — 옆으로 누운 사진에 회전 90°를 적용하면 미리보기 판정이 `sideways`(관절 0.88)에서 `ok`(관절 0.97)로 바뀌었습니다. 위 표처럼 똑바로 선 영상은 정답이 0.74~0.91로 나옵니다.
+
 ### 7-4. 정확도 주의
 
 - 학습 데이터는 5명 × 17동작뿐입니다. 사람 교차 검증(처음 보는 사람) 영상 단위 정확도는 **0.906**이지만, 새 사람·새 장소·다른 카메라 각도에서는 틀릴 수 있습니다.
@@ -378,7 +399,8 @@ vision_action_platform/
 │   │   ├── views.py             # DRF ViewSet (CRUD + status + cameras)
 │   │   ├── tasks.py             # Celery: 영상 확보 → FastAPI → ORM 저장
 │   │   ├── services.py          # FastAPI HTTP 호출·타임아웃·오류
-│   │   ├── camera_capture.py    # 허용된 IP Webcam에서 N초 수집
+│   │   ├── camera_capture.py    # 허용된 IP Webcam에서 N초 수집 (회전·축소)
+│   │   ├── camera_preview.py    # 실시간 미리보기 (shot.jpg → 회전 → FastAPI 관절)
 │   │   ├── page_views.py        # /analyses/ 화면, /dashboard/ ORM 집계
 │   │   ├── admin.py             # Admin 목록·검색·필터
 │   │   └── tests.py
@@ -387,7 +409,7 @@ vision_action_platform/
 ├── ai_service/                  # FastAPI
 │   ├── main.py                  # 앱 생성, /health, 시작 시 모델 1회 로드
 │   ├── routers/predictions.py   # POST /predict/video
-│   ├── services/                # model_loader · pose_pipeline · action_inference · overlay
+│   ├── services/                # model_loader · pose_pipeline · action_inference · overlay · live_pose
 │   ├── src/                     # 원본 프로젝트에서 복사한 Feature·Pose 코드
 │   ├── models/                  # joblib·JSON·CSV·YOLO 가중치
 │   ├── scripts/check_model.py   # T01

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from starlette.background import BackgroundTask
 
 from services.action_inference import VideoTooShortError
@@ -87,6 +87,36 @@ async def predict_video_v1(
     request: Request, file: UploadFile = File(...), overlay: bool = OverlayFlag
 ):
     return await _predict(request, file, overlay)
+
+
+@router.post("/pose/frame", summary="카메라 미리보기: 사진 1장에 관절을 그려 JPEG로 반환")
+async def pose_frame(request: Request, file: UploadFile = File(...)):
+    """응답 본문은 관절을 그린 JPEG, 판정은 헤더로 보냅니다.
+
+    X-Pose-Status : ok / no_person / core_missing / sideways / legs_missing / too_far
+    X-Pose-Persons: 검출된 사람 수
+    X-Pose-Keypoint-Conf: 가장 큰 사람의 관절 신뢰도 평균
+    """
+    live = getattr(request.app.state, "live", None)
+    if live is None:
+        raise HTTPException(503, "모델이 아직 준비되지 않았습니다.")
+    data = await file.read()
+    if not data or len(data) > 10 * 1024 * 1024:
+        raise HTTPException(400, "이미지가 비었거나 너무 큽니다.")
+    try:
+        jpeg, info = await run_in_threadpool(live.annotate, data)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={
+            "X-Pose-Status": info["status"],
+            "X-Pose-Persons": str(info["persons"]),
+            "X-Pose-Keypoint-Conf": str(info["keypoint_conf"]),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/overlay/{overlay_id}", summary="Skeleton Overlay MP4 내려받기 (1회)")

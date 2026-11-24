@@ -170,6 +170,17 @@ def parse_cameras(raw: str) -> dict[str, str]:
 
 # 허용된 IP Webcam 목록 (사용자가 임의 URL을 입력하지 못하게 함)
 ALLOWED_CAMERAS = parse_cameras(os.getenv("ALLOWED_CAMERAS", ""))
+# 카메라별 시계 방향 회전(0/90/180/270). 휴대폰을 세로로 들었는데 앱이 가로로 보내면 사람이
+# 옆으로 누운 영상이 되어 '눕기' 계열로 오인하므로, 수집·미리보기 단계에서 바로 세웁니다.
+# 예: CAMERA_ROTATION=phone1=90
+CAMERA_ROTATION = {
+    name: int(value) % 360
+    for name, value in parse_cameras(os.getenv("CAMERA_ROTATION", "")).items()
+    if value.strip().lstrip("-").isdigit() and int(value) % 90 == 0
+}
+# 수집 영상의 긴 변 최대 픽셀. YOLO는 640으로 줄여 쓰고 Feature는 몸통 길이로 정규화되므로
+# 줄여도 결과는 같고, 1080p 원본을 그대로 모을 때의 메모리(8초에 약 3GB)를 크게 줄입니다.
+CAMERA_MAX_SIDE = int(os.getenv("CAMERA_MAX_SIDE", "1280"))
 CAMERA_CAPTURE_SECONDS = int(os.getenv("CAMERA_CAPTURE_SECONDS", "8"))
 CAMERA_MIN_SECONDS = 5
 CAMERA_MAX_SECONDS = 10

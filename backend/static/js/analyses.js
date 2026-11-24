@@ -16,6 +16,76 @@
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString("ko-KR") : "-");
   const STATUS_TEXT = { PENDING: "대기", STARTED: "처리 중", SUCCESS: "완료", FAILURE: "실패" };
+  const LOW_KEYPOINT = 0.6;  // 업로드(전신) 영상은 0.95 이상, 몸 일부만 보이면 0.3~0.5
+
+  // ---------- IP Webcam 실시간 미리보기 ----------
+  // 0.2초마다 서버에 현재 화면을 요청 (서버가 카메라 사진을 가져와 관절을 그려 줌)
+  const camImg = document.getElementById("cam-img");
+  const camFrame = document.getElementById("cam-frame");
+  const camStatus = document.getElementById("cam-status");
+  const camToggle = document.getElementById("cam-toggle");
+  const camRec = document.getElementById("cam-rec");
+  const PREVIEW_MS = 200;
+  const POSE_HINT = {
+    ok: ["ok", "전신 인식됨 · 준비 완료"],
+    no_person: ["warn", "사람이 보이지 않습니다"],
+    core_missing: ["warn", "어깨·골반이 안 보입니다 · 뒤로 물러서세요"],
+    sideways: ["warn", "화면이 옆으로 누워 있습니다 · 휴대폰 방향(또는 CAMERA_ROTATION)을 확인하세요"],
+    legs_missing: ["warn", "발끝이 안 보입니다 · 조금 더 뒤로 가세요"],
+    too_far: ["warn", "사람이 너무 작습니다 · 조금 앞으로 오세요"],
+    unknown: ["", "카메라 화면 (AI 서버 응답 없음 · 관절 표시 생략)"],
+  };
+  let previewOn = false;
+  let previewTimer = null;
+  let lastBlobUrl = null;
+
+  function setPreview(on) {
+    if (!camImg) return;
+    previewOn = on;
+    clearTimeout(previewTimer);
+    camToggle.textContent = on ? "미리보기 끄기" : "미리보기 켜기";
+    if (on) { camStatus.textContent = "카메라에 연결 중…"; previewLoop(); }
+    else { camStatus.textContent = "미리보기가 꺼져 있습니다."; camFrame.className = "cam-frame"; }
+  }
+
+  async function previewLoop() {
+    if (!previewOn || document.hidden) return;
+    const started = performance.now();
+    let delay = PREVIEW_MS;
+    try {
+      const name = form.elements.camera_name.value;
+      const res = await fetch(`${API}cameras/${encodeURIComponent(name)}/preview/`, {
+        credentials: "same-origin", cache: "no-store",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `미리보기 실패 (${res.status})`);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      camImg.src = url;
+      if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
+      lastBlobUrl = url;
+      const code = res.headers.get("X-Pose-Status") || "unknown";
+      const [level, text] = POSE_HINT[code] || POSE_HINT.unknown;
+      const conf = res.headers.get("X-Pose-Keypoint-Conf");
+      camStatus.textContent = text + (conf && code !== "no_person" ? ` (관절 ${Math.round(conf * 100)}%)` : "");
+      camFrame.className = `cam-frame ${level}`;
+      delay = Math.max(0, PREVIEW_MS - (performance.now() - started));
+    } catch (err) {
+      camStatus.textContent = err.message;
+      camFrame.className = "cam-frame error";
+      delay = 2000;  // 카메라가 꺼져 있으면 2초 뒤 다시 시도
+    }
+    if (previewOn) previewTimer = setTimeout(previewLoop, delay);
+  }
+
+  function setRecording(on) { if (camRec) camRec.hidden = !on; }
+
+  if (camToggle) {
+    camToggle.addEventListener("click", () => setPreview(!previewOn));
+    // 탭을 다른 곳으로 옮겼다 돌아오면 이어서
+    document.addEventListener("visibilitychange", () => { if (!document.hidden && previewOn) previewLoop(); });
+  }
 
   // ---------- 입력 방식 탭 ----------
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -24,6 +94,8 @@
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
       document.querySelectorAll(".mode").forEach((el) => { el.hidden = !el.classList.contains(`mode-${mode}`); });
       form.elements.input_type.value = mode;
+      // IP Webcam 탭을 고르면 미리보기를 자동으로 켜고, 업로드 탭으로 가면 끔
+      setPreview(mode === "IP_WEBCAM" && !!camImg);
     });
   });
 
@@ -94,7 +166,11 @@
         const s = await res.json();
         setSteps(s.status);
         stageEl.textContent = `${STATUS_TEXT[s.status]}${s.stage ? " · " + s.stage : ""}`;
-        if (s.is_finished) { await showDetail(id); loadHistory(); return; }
+        // 서버가 카메라 영상을 받는 동안: 미리보기에 '녹화 중' 표시 (꺼져 있으면 자동으로 켬)
+        const capturing = s.status === "STARTED" && (s.stage || "").startsWith("영상 수집");
+        setRecording(capturing);
+        if (capturing && camImg && !previewOn && form.elements.input_type.value === "IP_WEBCAM") setPreview(true);
+        if (s.is_finished) { setRecording(false); await showDetail(id); loadHistory(); return; }
         pollTimer = setTimeout(tick, POLL_MS);
       } catch (err) {
         stageEl.textContent = err.message;
@@ -119,6 +195,13 @@
       html += `<div class="alert warn">${esc(job.result_message || "예측 결과가 없습니다.")}</div>`;
     } else {
       html += `<p class="muted">${esc(job.result_message)}</p>`;
+      // 관절 신뢰도가 낮으면 동작 신뢰도도 낮아짐 → 원인(입력 품질)과 해결 방법을 먼저 알려 줌
+      const lowQuality = job.predictions.filter((p) => p.mean_keypoint_conf != null && p.mean_keypoint_conf < LOW_KEYPOINT);
+      if (lowQuality.length) {
+        html += `<div class="alert warn"><strong>입력 품질이 낮습니다</strong> (관절 신뢰도 ${lowQuality.map((p) => `#${p.track_id} ${Math.round(p.mean_keypoint_conf * 100)}%`).join(", ")})<br>
+          몸 일부가 화면 밖이거나, 옆으로 누운 화면이거나, 흔들리면 관절을 잘 찾지 못해 동작 신뢰도도 낮아집니다.
+          머리부터 발끝까지 보이게 2~3m 떨어져, 휴대폰을 고정하고 밝은 곳에서 다시 시도하세요.</div>`;
+      }
       html += `<table class="table"><thead><tr><th>Track ID</th><th>예측 동작</th><th>신뢰도</th><th>후보 2·3위</th><th>창 수</th><th>보인 시간</th><th>관절 신뢰도</th></tr></thead><tbody>`;
       for (const p of job.predictions) {
         const pct = Math.round(p.confidence * 100);
@@ -131,7 +214,7 @@
           <td class="muted">${others}</td>
           <td>${p.window_count}</td>
           <td>${p.duration_sec}초</td>
-          <td>${p.mean_keypoint_conf ?? "-"}</td></tr>`;
+          <td>${p.mean_keypoint_conf ?? "-"}${p.mean_keypoint_conf != null && p.mean_keypoint_conf < LOW_KEYPOINT ? '<br><span class="badge s-FAILURE">품질 낮음</span>' : ""}</td></tr>`;
       }
       html += `</tbody></table>`;
     }

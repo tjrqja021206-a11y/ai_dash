@@ -38,7 +38,14 @@ def _obtain_video(job: AnalysisJob) -> Path:
         raise CameraError(f"허용되지 않은 카메라입니다: {job.camera_name}")
     _set_stage(job, f"영상 수집 중 ({job.capture_seconds}초)")
     temp = Path(settings.MEDIA_ROOT) / "captures" / f"job_{job.pk}_tmp.mp4"
-    capture_clip(url, job.capture_seconds, temp, settings.CAMERA_OPEN_TIMEOUT_SECONDS)
+    capture_clip(
+        url,
+        job.capture_seconds,
+        temp,
+        settings.CAMERA_OPEN_TIMEOUT_SECONDS,
+        rotate=settings.CAMERA_ROTATION.get(job.camera_name, 0),
+        max_side=settings.CAMERA_MAX_SIDE,
+    )
     # 수집한 영상도 업로드와 같은 방식(FileField)으로 보관 → 결과 화면에서 재생 가능
     with temp.open("rb") as file:
         job.video.save(f"camera_job_{job.pk}.mp4", File(file), save=True)

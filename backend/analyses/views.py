@@ -7,14 +7,18 @@ PATCH  /api/v1/analyses/{id}/         제목·메모만 수정
 DELETE /api/v1/analyses/{id}/         작업·사람별 결과·영상 파일 삭제 (처리 중이면 거부)
 GET    /api/v1/analyses/{id}/status/  상태만 가볍게 조회 (브라우저 폴링용)
 GET    /api/v1/analyses/cameras/      선택 가능한 카메라 이름 목록
+GET    /api/v1/analyses/cameras/{name}/preview/  카메라 현재 화면 + 관절 (JPEG, 실시간 미리보기용)
 """
 
 from django.conf import settings
 from django.db import transaction
+from django.http import Http404, HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from .camera_capture import CameraError
+from .camera_preview import preview_frame
 from .models import AnalysisJob
 from .serializers import (
     AnalysisJobCreateSerializer,
@@ -84,3 +88,14 @@ class AnalysisJobViewSet(viewsets.ModelViewSet):
                 "max_seconds": settings.CAMERA_MAX_SECONDS,
             }
         )
+
+    @action(detail=False, methods=["get"], url_path=r"cameras/(?P<name>[^/.]+)/preview")
+    def camera_preview(self, request, name=None):
+        # 허용 목록의 이름만 받음 → 사용자가 임의 주소로 서버가 요청하게 만들 수 없음
+        if name not in settings.ALLOWED_CAMERAS:
+            raise Http404("허용된 카메라가 아닙니다.")
+        try:
+            jpeg, headers = preview_frame(name)
+        except CameraError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+        return HttpResponse(jpeg, content_type="image/jpeg", headers=headers)

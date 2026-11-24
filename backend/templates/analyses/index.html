@@ -30,7 +30,18 @@
           <label>수집 시간(초)
             <input type="number" name="capture_seconds" value="{{ capture_seconds }}" min="{{ min_seconds }}" max="{{ max_seconds }}">
           </label>
-          <p class="help">‘AI 분석 시작’을 누르면 서버가 카메라에 연결해 지정한 시간 동안 영상을 받습니다. 그 시간 동안 카메라 앞에서 동작하세요.</p>
+          <div class="cam-preview">
+            <div class="cam-frame" id="cam-frame">
+              <img id="cam-img" alt="카메라 실시간 미리보기">
+              <span id="cam-rec" class="cam-rec" hidden>● 녹화 중</span>
+            </div>
+            <div class="cam-bar">
+              <span id="cam-status" class="cam-status">미리보기를 켜면 카메라 화면이 보입니다.</span>
+              <button type="button" id="cam-toggle" class="secondary">미리보기 켜기</button>
+            </div>
+          </div>
+          <p class="help">‘AI 분석 시작’을 누르면 서버가 카메라에 연결해 지정한 시간 동안 영상을 받습니다. 그 시간 동안 카메라 앞에서 동작하세요.<br>
+            <strong>정확도 팁</strong>: 머리부터 발끝까지 화면에 들어오게 2~3m 떨어지고, 사람이 <em>서 있는 모습</em>으로 보이게 휴대폰을 고정하세요. 미리보기 테두리가 <span class="ok-text">초록</span>이면 준비 완료입니다.</p>
         {% else %}
           <p class="alert error">허용된 카메라가 없습니다. 관리자가 <code>.env</code>의 <code>ALLOWED_CAMERAS</code>를 설정해야 합니다.</p>
         {% endif %}
