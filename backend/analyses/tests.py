@@ -139,6 +139,19 @@ class AnalysisApiTests(TestCase):
         self.assertEqual(self.client.delete(f"/api/v1/analyses/{job_id}/").status_code, 204)
         self.assertFalse(PersonPrediction.objects.filter(job_id=job_id).exists())
 
+    # 신뢰도 보정: AI 서버가 보낸 is_uncertain을 그대로 저장 (Django 기준값보다 우선)
+    @mock.patch(
+        "analyses.tasks.predict_video",
+        return_value={**FAKE_RESULT, "predictions": [
+            {**FAKE_RESULT["predictions"][0], "confidence": 0.95, "is_uncertain": False},
+            {**FAKE_RESULT["predictions"][1], "confidence": 0.62, "is_uncertain": True},
+        ]},
+    )
+    def test_ai_uncertainty_flag_used(self, _):
+        job = AnalysisJob.objects.get(pk=self.create_upload(self.alice).data["id"])
+        self.assertFalse(job.predictions.get(track_id=1).is_uncertain)
+        self.assertTrue(job.predictions.get(track_id=2).is_uncertain)
+
     # Skeleton Overlay: AI 서버가 만든 영상을 받아 저장하고, 삭제 시 함께 지움
     @mock.patch("analyses.tasks.download_overlay", return_value=b"fake-mp4")
     @mock.patch(

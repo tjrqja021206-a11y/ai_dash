@@ -10,6 +10,14 @@
   "min_track_seconds": 1.0,
   "max_gap_seconds": 0.25,
   "uncertain_threshold": 0.4,
+  "calibration": {
+    "enabled": true,
+    "file": "calibration.json",
+    "uncertain_threshold": 0.8,
+    "min_keypoint_conf": 0.6,
+    "_min_keypoint_conf_note": "보정기 학습 데이터는 관절 신뢰도 약 0.9인 전신 영상. 이보다 낮은 입력(몸 일부·누운 화면, 예: 웹캠 #8 관절 0.36에서 보정값 91%로 오답)은 보정값과 관계없이 불확실",
+    "_note":"confidence를 '이 예측이 맞을 확률'로 보정 (처음 보는 사람 교차 검증 2,295건, ECE 0.462→0.011). 0.8 미만이면 판단 불확실: 불확실 비율 45%→23%, 확실로 표시된 것의 정답률 95%. 끄면 모델 1위 확률과 위 uncertain_threshold(0.4) 사용"
+  },
   "static_trim": {
     "enabled": false,
     "pre_sec": 0.6,

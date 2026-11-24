@@ -275,3 +275,5 @@ button { font: inherit; cursor: pointer; }
   .pc-meta { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .rec-counter strong { font-size: 3rem; }
 }
+
+.pc-conf small { display: block; color: var(--muted); font-size: .74rem; margin-top: 2px; }

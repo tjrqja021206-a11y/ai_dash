@@ -37,6 +37,33 @@ from src.motion_capture_features import (
 logger = logging.getLogger("uvicorn.error")
 
 
+def calibrated_confidence(proba: np.ndarray, calibration: dict | None) -> float:
+    """모델 확률(17개) → '이 예측이 맞을 확률'.
+
+    Random Forest의 1위 확률은 17개 동작에 나눠 준 몫이라 실제 정답률보다 훨씬 낮습니다
+    (사람 교차 검증: 정답률 0.89인데 평균 1위 확률 0.43). 처음 보는 사람의 예측 2,295건으로 학습한
+    로지스틱 회귀(subject10_pose_action/scripts/52_fit_confidence_calibration.py)로 바꿉니다.
+    입력 Feature 계산은 52번 features()와 같아야 합니다.
+    """
+    p = np.asarray(proba, dtype=float)
+    if calibration is None:
+        return float(p.max())
+    srt = np.sort(p)[::-1]
+    p1, p2 = srt[0], srt[1]
+    eps = 1e-6
+    values = {
+        "p1": p1,
+        "p2": p2,
+        "margin": p1 - p2,
+        "log_ratio": np.log((p1 + eps) / (p2 + eps)),
+        "entropy": float(-(p * np.log(p + eps)).sum() / np.log(len(p))),
+    }
+    z = float(calibration["intercept"]) + sum(
+        float(c) * values[name] for name, c in zip(calibration["features"], calibration["coef"])
+    )
+    return float(1.0 / (1.0 + np.exp(-z)))
+
+
 class VideoTooShortError(Exception):
     """영상이 너무 짧아 동작을 판단할 수 없을 때."""
 
@@ -53,6 +80,13 @@ class ActionInferenceService:
         self.min_track_sec = float(project.get("min_track_seconds", 1.0))
         self.max_gap = float(project.get("max_gap_seconds", 0.25))
         self.uncertain = float(project.get("uncertain_threshold", 0.4))
+        # 보정을 쓰면 '정답 가능성'에 맞춘 기준으로 판단 불확실 여부를 정함
+        # 입력 품질 안전장치: 보정기는 전신이 잘 보이는 영상(관절 신뢰도 약 0.9)으로 학습했으므로,
+        # 관절 신뢰도가 이보다 낮은 입력(몸 일부만 보임·누운 화면)은 보정값과 관계없이 불확실로 둠
+        self.min_keypoint_conf = 0.0
+        if bundle.calibration is not None:
+            self.uncertain = float(project["calibration"].get("uncertain_threshold", 0.8))
+            self.min_keypoint_conf = float(project["calibration"].get("min_keypoint_conf", 0.6))
         trim = project.get("static_trim", {}) or {}
         self.trim_enabled = bool(trim.get("enabled", False))
         self.trim_kwargs = {
@@ -119,7 +153,17 @@ class ActionInferenceService:
         classes = self.bundle.classes
         order = np.argsort(proba)[::-1]
         best = classes[order[0]]
-        confidence = float(proba[order[0]])
+        model_probability = float(proba[order[0]])
+        # confidence = 보정이 있으면 '이 예측이 맞을 확률'(처음 보는 사람 교차 검증으로 맞춘 값),
+        #              없으면 모델 1위 확률
+        confidence = calibrated_confidence(proba, self.bundle.calibration)
+        keypoint_conf = float(np.mean(track.confidences))
+        if confidence < self.uncertain:
+            uncertain_reason = "low_confidence"
+        elif keypoint_conf < self.min_keypoint_conf:
+            uncertain_reason = "low_input_quality"
+        else:
+            uncertain_reason = None
         action = self.bundle.actions[best]
         return {
             "track_id": int(track.track_id),
@@ -127,7 +171,10 @@ class ActionInferenceService:
             "action_label": action["action_label"],
             "action_name": action["description"],
             "confidence": round(confidence, 4),
-            "is_uncertain": confidence < self.uncertain,
+            "model_probability": round(model_probability, 4),
+            "calibrated": self.bundle.calibration is not None,
+            "is_uncertain": uncertain_reason is not None,
+            "uncertain_reason": uncertain_reason,
             "top3": [
                 {
                     "action_id": classes[i],

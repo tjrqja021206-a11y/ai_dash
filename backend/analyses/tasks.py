@@ -115,7 +115,8 @@ def run_analysis(self, job_id: int) -> str:
                         action_id=p["action_id"],
                         action_label=p["action_label"],
                         confidence=p["confidence"],
-                        is_uncertain=p["confidence"] < settings.UNCERTAIN_THRESHOLD,
+                        # AI 서버가 보정된 정답 가능성으로 판단한 값을 우선 사용
+                        is_uncertain=p.get("is_uncertain", p["confidence"] < settings.UNCERTAIN_THRESHOLD),
                         top3=p.get("top3", []),
                         window_count=p.get("window_count", 0),
                         frame_count=p.get("frame_count", 0),

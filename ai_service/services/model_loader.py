@@ -72,6 +72,8 @@ class ModelBundle:
     actions: dict[str, dict] = field(default_factory=dict)
     pose_model_path: Path = MODEL_DIR / "yolo11n-pose.pt"
     tracker_path: Path = AI_ROOT / "bytetrack_stable.yaml"
+    # 신뢰도 보정 계수 (models/calibration.json). 없으면 모델 1위 확률을 그대로 신뢰도로 씀
+    calibration: dict | None = None
 
     @property
     def classes(self) -> list[str]:
@@ -90,6 +92,7 @@ class ModelBundle:
             "stride_sec": float(self.info["stride_sec"]),
             "train_fps": float(self.info["fps"]),
             "pose_model": self.pose_model_path.name,
+            "calibrated": self.calibration is not None,
         }
 
 
@@ -138,6 +141,16 @@ def load_bundle(model_dir: Path = MODEL_DIR) -> ModelBundle:
     if not pose_path.exists():
         raise RuntimeError(f"Pose 가중치가 없습니다: {pose_path}")
 
+    calibration = None
+    calib_cfg = project.get("calibration", {}) or {}
+    if calib_cfg.get("enabled"):
+        calib_path = model_dir / calib_cfg.get("file", "calibration.json")
+        if not calib_path.exists():
+            raise RuntimeError(f"신뢰도 보정 파일이 없습니다: {calib_path}")
+        calibration = json.loads(calib_path.read_text(encoding="utf-8"))
+        if len(calibration.get("coef", [])) != len(calibration.get("features", [])):
+            raise RuntimeError("calibration.json의 coef와 features 개수가 다릅니다.")
+
     return ModelBundle(
         window_model=window_model,
         clip_model=clip_model,
@@ -146,4 +159,5 @@ def load_bundle(model_dir: Path = MODEL_DIR) -> ModelBundle:
         actions=actions,
         pose_model_path=pose_path,
         tracker_path=AI_ROOT / project.get("tracker", "bytetrack_stable.yaml"),
+        calibration=calibration,
     )

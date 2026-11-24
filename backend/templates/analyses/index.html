@@ -105,7 +105,7 @@
       <tbody><tr><td colspan="9" class="muted">불러오는 중…</td></tr></tbody>
     </table>
   </div>
-  <p class="help">⚠ 학습하지 않은 동작에도 모델은 17개 중 하나를 출력합니다. 신뢰도 {{ uncertain_threshold }} 미만은 ‘판단 불확실’로 표시합니다. 예측은 참고용이며 위험행동 판정이 아닙니다.</p>
+  <p class="help">⚠ 학습하지 않은 동작에도 모델은 17개 중 하나를 출력합니다. ‘정답 가능성’은 처음 보는 사람으로 시험해 실제 정답률에 맞춘 값이며, {% widthratio uncertain_threshold 1 100 %}% 미만은 ‘판단 불확실’로 표시합니다. ‘모델 점수’는 17개 동작에 나눈 원래 확률입니다. 예측은 참고용이며 위험행동 판정이 아닙니다.</p>
 </section>
 {{ uncertain_threshold|json_script:"uncertain-threshold" }}
 {{ actions|json_script:"actions-data" }}

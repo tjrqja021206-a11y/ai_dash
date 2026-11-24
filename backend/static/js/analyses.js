@@ -281,10 +281,12 @@
   // 사람 1명의 결과 카드: 큰 동작 이름·신뢰도, 다른 후보, 입력 품질
   function personCard(p, job) {
     const pct = Math.round(p.confidence * 100);
+    // 보정 전 원래 확률 (17개 동작에 나눈 몫) — 다른 후보 점수와 같은 기준
+    const modelPct = p.top3 && p.top3.length ? Math.round(p.top3[0].probability * 100) : null;
     const lowKp = p.mean_keypoint_conf != null && p.mean_keypoint_conf < LOW_KEYPOINT;
     const matches = job.expected_action ? (job.expected_action === p.action_id) : null;
     const badges = [
-      p.is_uncertain ? `<span class="badge warn">판단 불확실</span>` : `<span class="badge s-SUCCESS">판단 확실</span>`,
+      p.is_uncertain ? `<span class="badge warn">${lowKp && pct >= 80 ? "판단 불확실 · 입력 품질" : "판단 불확실"}</span>` : `<span class="badge s-SUCCESS">판단 확실</span>`,
       matches === true ? `<span class="badge soft">수행하려던 동작과 일치</span>` : "",
       matches === false ? `<span class="badge soft">수행하려던 동작과 다름</span>` : "",
     ].join("");
@@ -294,10 +296,10 @@
       <div class="pc-top"><span class="pc-track">사람 #${p.track_id}</span><span class="pc-badges">${badges}</span></div>
       <div class="pc-main">
         <div class="pc-action"><strong>${esc(p.action_name)}</strong><small>${esc(p.action_id)} · ${esc(p.action_label)}</small></div>
-        <div class="pc-conf"><b>${pct}%</b><span>신뢰도</span></div>
+        <div class="pc-conf"><b>${pct}%</b><span>정답 가능성</span>${modelPct != null ? `<small>모델 점수 ${modelPct}%</small>` : ""}</div>
       </div>
       <div class="conf-bar"><span style="width:${pct}%"></span></div>
-      ${alts ? `<div class="pc-alt">다른 후보 ${alts}</div>` : ""}
+      ${alts ? `<div class="pc-alt">다른 후보 (모델 점수) ${alts}</div>` : ""}
       <dl class="pc-meta">
         <div><dt>관절 신뢰도</dt><dd class="${lowKp ? "bad" : ""}">${p.mean_keypoint_conf != null ? Math.round(p.mean_keypoint_conf * 100) + "%" : "-"}${lowKp ? " · 낮음" : ""}</dd></div>
         <div><dt>보인 시간</dt><dd>${p.duration_sec}초</dd></div>

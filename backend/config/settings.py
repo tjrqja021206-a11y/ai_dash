@@ -185,8 +185,9 @@ CAMERA_CAPTURE_SECONDS = int(os.getenv("CAMERA_CAPTURE_SECONDS", "8"))
 CAMERA_MIN_SECONDS = 5
 CAMERA_MAX_SECONDS = 10
 CAMERA_OPEN_TIMEOUT_SECONDS = int(os.getenv("CAMERA_OPEN_TIMEOUT_SECONDS", "10"))
-# 이 값 미만이면 화면에 '판단 불확실' 표시 (AI 서버 project.json과 동일)
-UNCERTAIN_THRESHOLD = float(os.getenv("UNCERTAIN_THRESHOLD", "0.4"))
+# 이 값 미만이면 화면에 '판단 불확실' 표시. AI 서버가 is_uncertain을 보내면 그 값을 쓰고, 이 값은
+# 화면 안내와 예비 판단용 (project.json calibration.uncertain_threshold와 같게: 정답 가능성 0.8)
+UNCERTAIN_THRESHOLD = float(os.getenv("UNCERTAIN_THRESHOLD", "0.8"))
 
 LOGGING = {
     "version": 1,
