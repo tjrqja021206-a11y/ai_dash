@@ -24,6 +24,7 @@ from services.pose_pipeline import (
     read_video_meta,
     resample_track,
 )
+from services.temporal import trim_static
 from src.motion_capture_features import (
     clip_descriptor,
     extended_frame_features,
@@ -52,6 +53,14 @@ class ActionInferenceService:
         self.min_track_sec = float(project.get("min_track_seconds", 1.0))
         self.max_gap = float(project.get("max_gap_seconds", 0.25))
         self.uncertain = float(project.get("uncertain_threshold", 0.4))
+        trim = project.get("static_trim", {}) or {}
+        self.trim_enabled = bool(trim.get("enabled", False))
+        self.trim_kwargs = {
+            "pre": float(trim.get("pre_sec", 0.6)),
+            "post": float(trim.get("post_sec", 0.8)),
+            "motion_rel": float(trim.get("motion_rel", 0.2)),
+            "min_frames": self.min_valid,
+        }
 
     # ------------------------------------------------
     # Feature
@@ -79,13 +88,33 @@ class ActionInferenceService:
         )
         return windows, clip
 
-    def predict_track(self, track: TrackData) -> dict | None:
+    def track_proba(self, track: TrackData) -> tuple[np.ndarray | None, int]:
+        """hybrid 확률 = (창 확률 평균 + Clip 확률) / 2, 그리고 창 수."""
         windows, clip = self.track_vectors(track)
         if not windows or clip is None:
-            return None
+            return None, 0
         window_proba = self.bundle.window_model.predict_proba(np.stack(windows)).mean(0)
         clip_proba = self.bundle.clip_model.predict_proba(clip.reshape(1, -1))[0]
-        proba = (window_proba + clip_proba) / 2.0
+        return (window_proba + clip_proba) / 2.0, len(windows)
+
+    def predict_track(self, track: TrackData) -> dict | None:
+        proba, window_count = self.track_proba(track)
+        if proba is None:
+            return None
+
+        # 웹캠처럼 동작 앞뒤로 오래 서 있던 구간이 있으면, 그 구간을 학습 영상 수준으로 줄인 트랙도
+        # 예측해 두 확률의 기하평균을 씁니다. (둘 다 동의하는 동작이 강해지고, 동작 후 자세 정보도 유지)
+        trimmed_sec = 0.0
+        if self.trim_enabled:
+            short, trimmed_sec = trim_static(track, **self.trim_kwargs)
+            if trimmed_sec > 0:
+                short_proba, _ = self.track_proba(short)
+                if short_proba is not None:
+                    combined = np.sqrt(proba * short_proba)
+                    if combined.sum() > 0:
+                        proba = combined / combined.sum()
+                else:
+                    trimmed_sec = 0.0
 
         classes = self.bundle.classes
         order = np.argsort(proba)[::-1]
@@ -107,7 +136,8 @@ class ActionInferenceService:
                 }
                 for i in order[:3]
             ],
-            "window_count": len(windows),
+            "window_count": window_count,
+            "trimmed_static_sec": round(trimmed_sec, 2),
             "frame_count": len(track.times),
             "duration_sec": round(track.span, 2),
             "mean_keypoint_conf": round(float(np.mean(track.confidences)), 3),

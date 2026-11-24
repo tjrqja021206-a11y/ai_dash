@@ -10,6 +10,13 @@
   "min_track_seconds": 1.0,
   "max_gap_seconds": 0.25,
   "uncertain_threshold": 0.4,
+  "static_trim": {
+    "enabled": true,
+    "pre_sec": 0.6,
+    "post_sec": 0.8,
+    "motion_rel": 0.2,
+    "_note": "동작 앞뒤 정지 구간을 줄인 예측과 전체 예측의 기하평균. 웹캠 조건 재현(102건) 정확도 96.1→97.1%, 평균 신뢰도 0.35→0.40, 앞뒤 정지 구간만 있을 때 94.1→100%·0.43→0.51"
+  },
   "max_process_fps": 0,
   "_max_process_fps_note": "0=모든 프레임 처리(기본, 정확도 우선). 30으로 두면 60fps 영상은 1장씩 건너뛰어 약 1.8배 빠르지만 평균 신뢰도가 0.72→0.63으로 낮아짐 (34개 영상 측정)"
 }
