@@ -1,0 +1,13 @@
+{
+  "project_name": "vision_action_platform",
+  "pose_model": "yolo11n-pose.pt",
+  "image_size": 640,
+  "person_confidence": 0.25,
+  "keypoint_confidence": 0.50,
+  "device": "auto",
+  "tracker": "bytetrack_stable.yaml",
+  "min_box_height_ratio": 0.2,
+  "min_track_seconds": 1.0,
+  "max_gap_seconds": 0.25,
+  "uncertain_threshold": 0.4
+}

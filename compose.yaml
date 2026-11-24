@@ -1,0 +1,84 @@
+# Vision Action Platform — 5개 서비스
+#   django   : 화면·DRF API·회원·Admin (브라우저 공개 8000)
+#   celery   : 비동기 분석 Worker (Django 코드·이미지 공유)
+#   fastapi  : AI 추론 서버 (개발용으로 8001 공개 → /docs)
+#   redis    : Celery 작업 대기열
+#   postgres : 영구 DB (pgdata 볼륨)
+# 컨테이너 간 통신은 localhost가 아니라 서비스 이름(postgres, redis, fastapi)을 사용합니다.
+
+x-backend: &backend
+  build: ./backend
+  image: vision_action_backend
+  env_file: .env
+  environment:
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/1
+    FASTAPI_URL: http://fastapi:8001
+    MEDIA_ROOT: /app/media
+  volumes:
+    - media:/app/media          # 업로드·카메라 영상: django와 celery가 같은 파일을 봄
+  restart: unless-stopped
+
+services:
+  django:
+    <<: *backend
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    <<: *backend
+    command: celery -A config worker -l info --concurrency=2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+
+  fastapi:
+    build: ./ai_service
+    image: vision_action_ai
+    environment:
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:

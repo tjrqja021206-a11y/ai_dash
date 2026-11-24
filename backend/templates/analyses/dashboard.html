@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}관리자 대시보드{% endblock %}
+{% block content %}
+<h1>관리자 대시보드</h1>
+<div class="stats">
+  <div class="stat"><span>전체 작업</span><strong>{{ total_jobs }}</strong></div>
+  <div class="stat"><span>완료</span><strong>{{ success_jobs }}</strong></div>
+  <div class="stat"><span>실패</span><strong>{{ failure_jobs }}</strong></div>
+  <div class="stat"><span>사람별 예측</span><strong>{{ total_predictions }}</strong></div>
+  <div class="stat"><span>평균 AI 처리</span><strong>{% if avg_seconds %}{{ avg_seconds }}초{% else %}-{% endif %}</strong></div>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>동작별 예측 건수</h2>
+    <div class="chart-box tall"><canvas id="action-chart" aria-label="동작별 예측 건수 막대그래프"></canvas></div>
+  </section>
+  <section class="card">
+    <h2>작업 상태별 건수</h2>
+    <div class="chart-box"><canvas id="status-chart" aria-label="상태별 작업 건수 원형그래프"></canvas></div>
+    <h2>입력 방식별 작업 수</h2>
+    <div class="chart-box short"><canvas id="input-chart" aria-label="입력 방식별 작업 수"></canvas></div>
+  </section>
+</div>
+
+<section class="card">
+  <h2>최근 작업</h2>
+  <table class="table">
+    <thead><tr><th>ID</th><th>사용자</th><th>입력</th><th>상태</th><th>예측 수</th><th>AI 처리(ms)</th><th>오류</th><th>요청 시각</th></tr></thead>
+    <tbody>
+    {% for job in recent_jobs %}
+      <tr>
+        <td><a href="{% url 'admin:analyses_analysisjob_change' job.id %}">#{{ job.id }}</a></td>
+        <td>{{ job.user.username }}</td>
+        <td>{{ job.get_input_type_display }}</td>
+        <td><span class="badge s-{{ job.status }}">{{ job.get_status_display }}</span></td>
+        <td>{{ job.n_pred }}</td>
+        <td>{{ job.processing_ms|default:"-" }}</td>
+        <td class="muted">{{ job.error_message|truncatechars:40 }}</td>
+        <td>{{ job.created_at|date:"m-d H:i:s" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="8" class="muted">아직 분석 작업이 없습니다.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{{ chart_data|json_script:"chart-data" }}
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}

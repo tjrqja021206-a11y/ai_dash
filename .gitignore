@@ -1,0 +1,25 @@
+# 비밀정보
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Django 실행 중 생성
+backend/media/
+backend/staticfiles/
+backend/db.sqlite3
+
+# 영상 (모델 파일 ai_service/models/는 약 15MB라 저장소에 포함)
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# IDE·OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

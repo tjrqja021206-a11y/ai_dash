@@ -1,0 +1,13 @@
+# FastAPI 추론 서버 (Python 3.12)
+# 학습 환경(subject10_pose_action)과 같은 버전으로 맞춰 joblib 모델 호환성을 지킵니다.
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.34        # UploadFile(multipart) 수신
+ultralytics==8.4.203            # YOLO11 Pose + ByteTrack
+lap==0.5.14                     # ByteTrack 매칭 (없으면 ultralytics가 실행 중 설치를 시도)
+scikit-learn==1.9.1             # ★ 모델 학습 버전과 동일해야 함
+numpy==2.5.4
+pandas==3.1.1
+joblib==1.6.0
+torch==2.15.0                   # Docker에서는 CPU 빌드 (Dockerfile의 extra-index-url)
+torchvision==0.29.2

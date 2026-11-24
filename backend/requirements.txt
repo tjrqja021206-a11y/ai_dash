@@ -1,0 +1,8 @@
+# Django·DRF 웹 서버와 Celery Worker 공통 의존성 (Python 3.12)
+Django==6.1.3
+djangorestframework==3.18.3
+celery[redis]==5.7.0
+redis==8.2.0
+psycopg[binary]==3.3.9            # PostgreSQL 드라이버
+requests==2.34.2                  # Worker → FastAPI HTTP 호출
+opencv-python-headless==5.1.0.95  # IP Webcam 프레임 수집 (camera_capture.py)

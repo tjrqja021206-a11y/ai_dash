@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}로그인{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>로그인</h1>
+  {% if form.errors %}<div class="alert error">아이디 또는 비밀번호가 올바르지 않습니다.</div>{% endif %}
+  {% if next and user.is_authenticated %}<div class="alert error">이 페이지에 접근할 권한이 없습니다.</div>{% endif %}
+  <form method="post" class="stack">
+    {% csrf_token %}
+    <label>아이디 {{ form.username }}</label>
+    <label>비밀번호 {{ form.password }}</label>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="primary">로그인</button>
+  </form>
+  <p class="muted">계정이 없나요? <a href="{% url 'signup' %}">회원가입</a></p>
+</section>
+{% endblock %}
