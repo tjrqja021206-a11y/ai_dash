@@ -68,6 +68,12 @@
       <li data-status="DONE">완료 / 실패</li>
     </ol>
     <p id="stage" class="muted">분석을 시작하면 여기에 진행 상태가 표시됩니다.</p>
+    <!-- IP Webcam 녹화 중: 멀리서도 보이게 큰 초 카운터 + 진행 막대 -->
+    <div id="rec-box" class="rec-box" hidden>
+      <div class="rec-label">● 녹화 중 · 지금 동작하세요</div>
+      <div id="rec-counter" class="rec-counter"></div>
+      <div class="rec-track"><span id="rec-bar"></span></div>
+    </div>
     <div id="result"></div>
   </section>
 </div>

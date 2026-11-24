@@ -6,6 +6,7 @@ FastAPI·카메라는 mock으로 대체하고 CELERY_TASK_ALWAYS_EAGER로 작업
 
 import shutil
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -199,6 +200,81 @@ class AnalysisApiTests(TestCase):
         capture.assert_called_once()
         self.assertEqual(capture.call_args.args[0], "http://192.168.0.10:8080/video")
         self.assertEqual(capture.call_args.kwargs["rotate"], 90)  # CAMERA_ROTATION 전달
+
+    # 녹화 실시간 초 카운터: 첫 프레임 순간 기록 → 상태 API가 지난 초를 알려 줌
+    @mock.patch("analyses.tasks.capture_clip")
+    def test_capture_start_recorded_and_elapsed_in_status(self, capture):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from .camera_capture import CameraError
+
+        def fake_capture(*args, on_start=None, **kwargs):
+            on_start()  # 첫 프레임 도착
+            raise CameraError("테스트용 중단")
+
+        capture.side_effect = fake_capture
+        self.client.force_authenticate(self.alice)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/v1/analyses/",
+                {"input_type": "IP_WEBCAM", "camera_name": "phone", "capture_seconds": 8},
+                format="multipart",
+            )
+        job = AnalysisJob.objects.get(pk=response.data["id"])
+        self.assertIsNotNone(job.capture_started_at)
+        # 끝난 작업은 카운터 없음
+        status = self.client.get(f"/api/v1/analyses/{job.pk}/status/").data
+        self.assertIsNone(status["capture_elapsed"])
+
+        # 녹화 중인 작업: 3초 전에 시작 → 약 3초
+        AnalysisJob.objects.filter(pk=job.pk).update(
+            status=AnalysisJob.Status.STARTED,
+            stage="영상 수집 중 (8초)",
+            capture_started_at=timezone.now() - timedelta(seconds=3),
+        )
+        status = self.client.get(f"/api/v1/analyses/{job.pk}/status/").data
+        self.assertAlmostEqual(status["capture_elapsed"], 3.0, delta=0.5)
+        self.assertEqual(status["capture_seconds"], 8)
+
+
+class CaptureClipTests(TestCase):
+    """capture_clip: 첫 프레임부터 시간을 재고, 그 순간 on_start를 한 번 부름."""
+
+    def test_on_start_called_once_at_first_frame(self):
+        import time
+
+        import numpy as np
+
+        from .camera_capture import capture_clip
+
+        class FakeCamera:
+            reads = 0
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def isOpened(self):
+                return True
+
+            def read(self):
+                FakeCamera.reads += 1
+                if FakeCamera.reads <= 3:  # 처음 3번은 아직 영상이 안 옴
+                    return False, None
+                time.sleep(1 / 60)  # 실제 카메라처럼 약 60fps
+                return True, np.zeros((48, 64, 3), np.uint8)
+
+            def release(self):
+                pass
+
+        calls = []
+        out = Path(TEMP_MEDIA) / "clip_test.mp4"
+        with mock.patch("analyses.camera_capture.cv2.VideoCapture", FakeCamera):
+            info = capture_clip("http://cam/video", 0.3, out, on_start=lambda: calls.append(1))
+        self.assertEqual(len(calls), 1)
+        self.assertGreater(info["frames"], 0)
+        self.assertTrue(out.exists())
 
 
 def _jpeg(width=64, height=32):

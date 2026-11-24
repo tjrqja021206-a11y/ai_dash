@@ -10,6 +10,7 @@
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -58,7 +59,13 @@ def capture_clip(
     open_timeout: int = 10,
     rotate: int = 0,
     max_side: int = 1280,
+    on_start: Callable[[], None] | None = None,
 ) -> dict:
+    """seconds초 동안 받은 프레임을 output(MP4)으로 저장합니다.
+
+    수집 시간은 카메라에서 첫 프레임이 들어온 순간부터 셉니다(연결 시간 제외).
+    on_start는 그 순간 한 번 호출됩니다 → 화면의 실시간 초 카운터 기준 시각.
+    """
     output.parent.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(
         url,
@@ -72,9 +79,12 @@ def capture_clip(
     encoded: list[bytes] = []
     size = None
     failures = 0
-    started = time.monotonic()
+    opened = time.monotonic()
+    started = None  # 첫 프레임을 받은 시각
     try:
-        while time.monotonic() - started < seconds:
+        while started is None or time.monotonic() - started < seconds:
+            if started is None and time.monotonic() - opened > open_timeout:
+                raise CameraError("카메라는 연결됐지만 영상이 들어오지 않습니다.")
             ok, frame = capture.read()
             if not ok or frame is None:
                 failures += 1
@@ -83,6 +93,10 @@ def capture_clip(
                 time.sleep(0.05)
                 continue
             failures = 0
+            if started is None:
+                started = time.monotonic()
+                if on_start is not None:
+                    on_start()
             frame = prepare_frame(frame, rotate, max_side)
             if size is None:
                 size = (frame.shape[1], frame.shape[0])

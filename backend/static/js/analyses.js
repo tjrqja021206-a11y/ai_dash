@@ -79,7 +79,41 @@
     if (previewOn) previewTimer = setTimeout(previewLoop, delay);
   }
 
-  function setRecording(on) { if (camRec) camRec.hidden = !on; }
+  // ---------- 녹화 실시간 초 카운터 ----------
+  // 서버가 알려 준 '녹화 시작 후 지난 초'를 기준으로 브라우저 시계로 0.1초 단위로 이어서 셉니다.
+  const recBox = document.getElementById("rec-box");
+  const recCounter = document.getElementById("rec-counter");
+  const recBar = document.getElementById("rec-bar");
+  let recStart = null;   // performance.now() 기준 녹화 시작 시각
+  let recTotal = 0;
+  let recFrame = null;
+
+  function setRecording(on, elapsed = null, total = 0) {
+    if (!on || elapsed == null) {
+      recStart = null;
+      cancelAnimationFrame(recFrame);
+      if (camRec) camRec.hidden = true;
+      if (recBox) recBox.hidden = true;
+      return;
+    }
+    const start = performance.now() - elapsed * 1000;
+    // 폴링마다 기준을 다시 맞추되, 0.3초 이상 어긋날 때만 (숫자가 튀지 않게)
+    if (recStart == null || Math.abs(start - recStart) > 300) recStart = start;
+    recTotal = total;
+    if (camRec) camRec.hidden = false;
+    if (recBox) recBox.hidden = false;
+    cancelAnimationFrame(recFrame);
+    const draw = () => {
+      if (recStart == null) return;
+      const sec = Math.min(recTotal, (performance.now() - recStart) / 1000);
+      const left = Math.max(0, recTotal - sec);
+      if (camRec) camRec.textContent = `● 녹화 중 ${sec.toFixed(1)}초 / ${recTotal}초`;
+      if (recCounter) recCounter.innerHTML = `<strong>${sec.toFixed(1)}</strong><span> / ${recTotal}초</span><em>남은 시간 ${left.toFixed(1)}초</em>`;
+      if (recBar) recBar.style.width = `${(sec / recTotal) * 100}%`;
+      recFrame = requestAnimationFrame(draw);
+    };
+    draw();
+  }
 
   if (camToggle) {
     camToggle.addEventListener("click", () => setPreview(!previewOn));
@@ -167,11 +201,14 @@
         setSteps(s.status);
         stageEl.textContent = `${STATUS_TEXT[s.status]}${s.stage ? " · " + s.stage : ""}`;
         // 서버가 카메라 영상을 받는 동안: 미리보기에 '녹화 중' 표시 (꺼져 있으면 자동으로 켬)
-        const capturing = s.status === "STARTED" && (s.stage || "").startsWith("영상 수집");
-        setRecording(capturing);
-        if (capturing && camImg && !previewOn && form.elements.input_type.value === "IP_WEBCAM") setPreview(true);
+        const stage = s.stage || "";
+        const capturing = s.status === "STARTED" && stage.startsWith("영상 수집") && s.capture_elapsed != null;
+        const connecting = s.status === "STARTED" && stage.startsWith("카메라 연결");
+        setRecording(capturing, s.capture_elapsed, s.capture_seconds);
+        if ((capturing || connecting) && camImg && !previewOn && form.elements.input_type.value === "IP_WEBCAM") setPreview(true);
         if (s.is_finished) { setRecording(false); await showDetail(id); loadHistory(); return; }
-        pollTimer = setTimeout(tick, POLL_MS);
+        // 카메라 연결·녹화 중에는 0.5초마다 확인 (시작 순간을 놓치지 않게)
+        pollTimer = setTimeout(tick, capturing || connecting || s.status === "PENDING" ? 500 : POLL_MS);
       } catch (err) {
         stageEl.textContent = err.message;
       }

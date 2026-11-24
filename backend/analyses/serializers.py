@@ -119,11 +119,14 @@ class AnalysisJobStatusSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     is_finished = serializers.BooleanField(read_only=True)
     prediction_count = serializers.IntegerField(source="predictions.count", read_only=True)
+    # 녹화 중이면 시작 후 지난 초(서버 기준). 브라우저는 이 값부터 자기 시계로 이어서 셉니다
+    capture_elapsed = serializers.FloatField(read_only=True, allow_null=True)
 
     class Meta:
         model = AnalysisJob
         fields = [
             "id", "status", "status_display", "stage", "is_finished",
             "error_message", "result_message", "prediction_count", "completed_at",
+            "capture_seconds", "capture_elapsed",
         ]
         read_only_fields = fields

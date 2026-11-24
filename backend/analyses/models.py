@@ -57,10 +57,23 @@ class AnalysisJob(models.Model):
 
     created_at = models.DateTimeField("생성 시각", auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
+    # IP Webcam에서 첫 프레임을 받은 시각 → 화면의 실시간 녹화 초 카운터 기준
+    capture_started_at = models.DateTimeField("녹화 시작 시각", null=True, blank=True)
     completed_at = models.DateTimeField("완료 시각", null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def capture_elapsed(self):
+        """녹화 중이면 시작 후 지난 초(서버 시계 기준), 아니면 None."""
+        if self.capture_started_at is None or self.status != self.Status.STARTED:
+            return None
+        if not self.stage.startswith("영상 수집"):
+            return None
+        from django.utils import timezone
+
+        return round((timezone.now() - self.capture_started_at).total_seconds(), 2)
 
     def __str__(self):
         return f"#{self.pk} {self.get_input_type_display()} {self.status}"

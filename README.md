@@ -261,7 +261,9 @@ sequenceDiagram
 | `GET /overlay/{id}` | 없음 | Overlay MP4 (한 번 내려주면 삭제, 안 가져간 파일은 1시간 뒤 정리) |
 | `POST /pose/frame` | multipart `file` (JPEG 1장) | 관절을 그린 JPEG + 헤더 `X-Pose-Status`(`ok`·`no_person`·`core_missing`·`sideways`·`legs_missing`·`too_far`), `X-Pose-Keypoint-Conf` |
 
-**실시간 미리보기 흐름**: 브라우저(`analyses.js`)가 0.2초마다 `GET /api/v1/analyses/cameras/{이름}/preview/` → Django(`camera_preview.py`)가 허용된 카메라의 `/shot.jpg`를 받아 회전·축소 → FastAPI `/pose/frame`이 관절을 그리고 촬영 자세를 판정(영상 분석과 별도 YOLO 객체라 분석 중에도 멈추지 않음, 1장 약 30ms) → 브라우저가 테두리 색과 안내 문구로 표시. 서버가 카메라 영상을 받는 동안에는 `● 녹화 중`이 깜박입니다. 카메라 주소는 브라우저에 노출되지 않습니다.
+**실시간 미리보기 흐름**: 브라우저(`analyses.js`)가 0.2초마다 `GET /api/v1/analyses/cameras/{이름}/preview/` → Django(`camera_preview.py`)가 허용된 카메라의 `/shot.jpg`를 받아 회전·축소 → FastAPI `/pose/frame`이 관절을 그리고 촬영 자세를 판정(영상 분석과 별도 YOLO 객체라 분석 중에도 멈추지 않음, 1장 약 30ms) → 브라우저가 테두리 색과 안내 문구로 표시. 카메라 주소는 브라우저에 노출되지 않습니다.
+
+**녹화 실시간 초 카운터**: Celery가 카메라에서 **첫 프레임을 받은 순간**을 `AnalysisJob.capture_started_at`에 기록하고(연결에 걸린 시간은 수집 시간에서 제외), 상태 API(`/status/`)가 `capture_elapsed`(녹화 시작 후 지난 초, 서버 기준)를 돌려줍니다. 브라우저는 녹화 중 0.5초마다 상태를 확인하면서 그 값을 기준으로 0.1초 단위로 이어서 세어 결과 카드에 큰 숫자(`3.2 / 8초`, 남은 시간)와 진행 막대를, 미리보기에 `● 녹화 중 3.2초 / 8초`를 보여 줍니다. 단계는 `카메라 연결 중` → `영상 수집 중` → `AI 분석 중` → `완료` 순서로 표시됩니다.
 
 Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV 디코더로 영상을 다시 읽어 Track ID마다 다른 색으로 뼈대와 이름표를 그립니다. 긴 변 720px·30fps 이하로 줄이고 PyAV(libx264)로 H.264 인코딩합니다(OpenCV pip 빌드에는 H.264 인코더가 없음, VP8 WebM보다 9배 빠르고 파일은 1/20). Overlay 생성·전송이 실패해도 분석 결과는 SUCCESS로 저장되고, `.env`의 `ANALYSIS_OVERLAY=False`로 끌 수 있습니다.
 
@@ -317,7 +319,7 @@ Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV �
 
 **Docker Compose 환경 재확인**: 5개 컨테이너에서 S03 앞차기(S03_A003_T01) 업로드 → POST 0.34초 만에 작업 ID 반환(T05) → Celery·FastAPI 처리 후 SUCCESS, `A003 front_kick` 0.77, AI 9.9초(CPU) (T02) → 재시작 후 DB 유지(T10). 컨테이너 안에서 `docker compose exec django python manage.py test`도 14개 통과.
 
-자동 테스트: `python manage.py test` → 24개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개, Overlay 저장·실패 2개, 카메라 미리보기 5개).
+자동 테스트: `python manage.py test` → 26개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개, Overlay 저장·실패 2개, 카메라 미리보기 5개, 녹화 초 카운터 2개).
 
 ### 7-1-1. 성능 고도화 (속도·안정성)
 
