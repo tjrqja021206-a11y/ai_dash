@@ -146,6 +146,8 @@ FASTAPI_URL = os.getenv("FASTAPI_URL", "http://localhost:8001")
 FASTAPI_TIMEOUT_SECONDS = int(os.getenv("FASTAPI_TIMEOUT_SECONDS", "300"))
 # AI 서버 재시작·모델 로딩 중(연결 실패·503)일 때 재시도 횟수와 간격(초, 회차마다 늘어남)
 FASTAPI_RETRIES = int(os.getenv("FASTAPI_RETRIES", "3"))
+# 결과 화면용 Skeleton Overlay 영상을 함께 만들지 (영상 1번 더 읽음: 3.7초 60fps 영상 기준 +1.8초)
+ANALYSIS_OVERLAY = env_bool("ANALYSIS_OVERLAY", True)
 FASTAPI_RETRY_DELAY_SECONDS = float(os.getenv("FASTAPI_RETRY_DELAY_SECONDS", "3"))
 # Celery 작업 하나의 최대 시간: 카메라 수집 + AI 응답 대기 + 여유. 넘으면 FAILURE로 기록
 ANALYSIS_TIME_LIMIT_SECONDS = int(

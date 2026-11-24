@@ -137,6 +137,38 @@ class AnalysisApiTests(TestCase):
         self.assertEqual(self.client.delete(f"/api/v1/analyses/{job_id}/").status_code, 204)
         self.assertFalse(PersonPrediction.objects.filter(job_id=job_id).exists())
 
+    # Skeleton Overlay: AI 서버가 만든 영상을 받아 저장하고, 삭제 시 함께 지움
+    @mock.patch("analyses.tasks.download_overlay", return_value=b"fake-mp4")
+    @mock.patch(
+        "analyses.tasks.predict_video",
+        return_value={**FAKE_RESULT, "overlay": {"url": "/overlay/" + "a" * 32}},
+    )
+    def test_overlay_saved_and_deleted_with_job(self, _, download):
+        job_id = self.create_upload(self.alice).data["id"]
+        download.assert_called_once_with("/overlay/" + "a" * 32)
+        job = AnalysisJob.objects.get(pk=job_id)
+        self.assertEqual(job.status, AnalysisJob.Status.SUCCESS)
+        overlay_path = job.overlay_video.path
+        with open(overlay_path, "rb") as file:
+            self.assertEqual(file.read(), b"fake-mp4")
+        detail = self.client.get(f"/api/v1/analyses/{job_id}/").data
+        self.assertTrue(detail["overlay_url"].endswith(f"overlay_job_{job_id}.mp4"))
+
+        self.assertEqual(self.client.delete(f"/api/v1/analyses/{job_id}/").status_code, 204)
+        self.assertFalse(__import__("os").path.exists(overlay_path))
+
+    # Overlay를 못 받아도 분석 결과는 SUCCESS로 유지
+    @mock.patch("analyses.tasks.download_overlay", side_effect=AIServiceError("HTTP 404"))
+    @mock.patch(
+        "analyses.tasks.predict_video",
+        return_value={**FAKE_RESULT, "overlay": {"url": "/overlay/" + "b" * 32}},
+    )
+    def test_overlay_failure_keeps_success(self, *_):
+        job = AnalysisJob.objects.get(pk=self.create_upload(self.alice).data["id"])
+        self.assertEqual(job.status, AnalysisJob.Status.SUCCESS)
+        self.assertEqual(job.predictions.count(), 2)
+        self.assertFalse(job.overlay_video)
+
     # T09 예외: AI 서버 장애 → FAILURE와 오류 기록
     @mock.patch("analyses.tasks.predict_video", side_effect=AIServiceError("AI 서버에 연결할 수 없습니다."))
     def test_ai_failure_recorded(self, _):

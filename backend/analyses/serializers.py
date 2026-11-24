@@ -93,6 +93,7 @@ class AnalysisJobSerializer(serializers.ModelSerializer):
     is_finished = serializers.BooleanField(read_only=True)
     total_seconds = serializers.FloatField(read_only=True)
     video_url = serializers.SerializerMethodField()
+    overlay_url = serializers.SerializerMethodField()
     predictions = PersonPredictionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -102,13 +103,16 @@ class AnalysisJobSerializer(serializers.ModelSerializer):
             "camera_name", "capture_seconds", "expected_action", "expected_action_name",
             "status", "status_display", "stage", "is_finished", "celery_task_id",
             "result_status", "result_message", "error_message",
-            "video_url", "video_duration_sec", "video_fps", "processing_ms", "total_seconds",
+            "video_url", "overlay_url", "video_duration_sec", "video_fps", "processing_ms", "total_seconds",
             "created_at", "started_at", "completed_at", "predictions",
         ]
         read_only_fields = [f for f in fields if f not in ("title", "memo")]
 
     def get_video_url(self, job):
         return job.video.url if job.video else None
+
+    def get_overlay_url(self, job):
+        return job.overlay_video.url if job.overlay_video else None
 
 
 class AnalysisJobStatusSerializer(serializers.ModelSerializer):

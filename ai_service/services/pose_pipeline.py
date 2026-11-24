@@ -45,6 +45,7 @@ class VideoMeta:
 @dataclass
 class TrackData:
     track_id: int
+    frame_indices: list[int] = field(default_factory=list)      # 원본 영상 프레임 번호 (Overlay용)
     times: list[float] = field(default_factory=list)
     keypoints: list[np.ndarray] = field(default_factory=list)   # (17, 2) px
     confidences: list[float] = field(default_factory=list)      # 관절 신뢰도 평균
@@ -186,6 +187,7 @@ class PosePipeline:
                     if points is None:
                         continue  # 어깨·엉덩이가 안 보이면 Feature를 만들 수 없음
                     track = tracks.setdefault(track_id, TrackData(track_id))
+                    track.frame_indices.append(index)
                     track.times.append(t)
                     track.keypoints.append(points)
                     track.confidences.append(

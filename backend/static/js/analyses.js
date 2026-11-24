@@ -142,7 +142,14 @@
       job.total_seconds != null ? `요청~완료 ${job.total_seconds}초` : null,
     ].filter(Boolean);
     if (facts.length) html += `<p class="muted">${facts.join(" · ")}</p>`;
-    if (job.video_url) html += `<video src="${esc(job.video_url)}" controls muted class="preview"></video>`;
+    if (job.overlay_url) {
+      // Skeleton Overlay가 있으면 그것을 먼저 보여 주고, 원본은 링크로
+      html += `<h3 class="overlay-title">Skeleton Overlay <span class="muted">사람별 관절·동작·신뢰도 (? = 판단 불확실)</span></h3>
+        <video src="${esc(job.overlay_url)}" controls muted playsinline loop class="preview"></video>`;
+      if (job.video_url) html += `<p class="muted"><a href="${esc(job.video_url)}" target="_blank" rel="noopener">원본 영상 보기</a></p>`;
+    } else if (job.video_url) {
+      html += `<video src="${esc(job.video_url)}" controls muted class="preview"></video>`;
+    }
     resultEl.innerHTML = html;
   }
 

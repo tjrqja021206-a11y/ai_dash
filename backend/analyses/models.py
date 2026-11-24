@@ -34,6 +34,8 @@ class AnalysisJob(models.Model):
     input_type = models.CharField("입력 방식", max_length=10, choices=InputType.choices)
     # 영상 파일 자체는 Media 폴더에, DB에는 경로만 저장
     video = models.FileField("영상", upload_to=upload_path, blank=True)
+    # AI 서버가 그려 준 Skeleton Overlay 결과 영상 (H.264 MP4, 없으면 빈 값)
+    overlay_video = models.FileField("Overlay 영상", upload_to="overlays/", blank=True)
     camera_name = models.CharField("카메라 이름", max_length=50, blank=True)
     capture_seconds = models.PositiveSmallIntegerField("수집 시간(초)", null=True, blank=True)
     # 사용자가 '하려던' 동작. 검증된 정답 Label이 아님

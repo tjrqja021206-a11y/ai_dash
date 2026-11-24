@@ -6,6 +6,7 @@
 
 - **입력 2가지**: ① 영상 업로드(MP4 등) ② IP Webcam에서 정해진 시간(기본 8초) 수집
 - **결과**: 영상 속 사람마다(Track ID별) 예측 동작, 신뢰도, 후보 2·3위, 판단 불확실 여부
+- **Skeleton Overlay**: 사람별 관절 뼈대와 `ID·동작·신뢰도`를 그린 결과 영상(H.264 MP4)을 결과 화면에서 재생
 - **관리**: Django Admin(작업·사람별 결과 검색/필터)과 관리자 전용 `/dashboard/`(Chart.js)
 
 | 구분 | 내용 |
@@ -254,7 +255,10 @@ sequenceDiagram
 | 엔드포인트 | 입력 | 반환 |
 |---|---|---|
 | `GET /health` | 없음 | `model_ready`, 클래스 목록, Feature 수 |
-| `POST /predict/video` (`/api/v1/predict/` 동일) | multipart `file` | 아래 JSON |
+| `POST /predict/video` (`/api/v1/predict/` 동일) | multipart `file`, 선택 `?overlay=true` | 아래 JSON (+ `overlay: {url, frames, fps, width, height, render_ms}`) |
+| `GET /overlay/{id}` | 없음 | Overlay MP4 (한 번 내려주면 삭제, 안 가져간 파일은 1시간 뒤 정리) |
+
+Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV 디코더로 영상을 다시 읽어 Track ID마다 다른 색으로 뼈대와 이름표를 그립니다. 긴 변 720px·30fps 이하로 줄이고 PyAV(libx264)로 H.264 인코딩합니다(OpenCV pip 빌드에는 H.264 인코더가 없음, VP8 WebM보다 9배 빠르고 파일은 1/20). Overlay 생성·전송이 실패해도 분석 결과는 SUCCESS로 저장되고, `.env`의 `ANALYSIS_OVERLAY=False`로 끌 수 있습니다.
 
 ```json
 {
@@ -308,7 +312,7 @@ sequenceDiagram
 
 **Docker Compose 환경 재확인**: 5개 컨테이너에서 S03 앞차기(S03_A003_T01) 업로드 → POST 0.34초 만에 작업 ID 반환(T05) → Celery·FastAPI 처리 후 SUCCESS, `A003 front_kick` 0.77, AI 9.9초(CPU) (T02) → 재시작 후 DB 유지(T10). 컨테이너 안에서 `docker compose exec django python manage.py test`도 14개 통과.
 
-자동 테스트: `python manage.py test` → 17개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개).
+자동 테스트: `python manage.py test` → 19개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개, Overlay 저장·실패 2개).
 
 ### 7-1-1. 성능 고도화 (속도·안정성)
 
@@ -318,6 +322,7 @@ sequenceDiagram
 | 웹 서버 | `runserver` (개발용, 1 프로세스) | **gunicorn 3 workers** + WhiteNoise 정적 파일 | 동시 요청 처리, 업로드 중에도 상태 조회 응답 |
 | AI 서버 일시 장애 | 즉시 FAILURE | 연결 실패·503(모델 로딩 중)은 **최대 3번 재시도**(3·6·9초 간격) | `analyses/services.py`, 테스트 3개 |
 | 오래 걸리는 작업 | 제한 없음 (Worker가 묶일 수 있음) | Celery `soft_time_limit`(기본 420초) 초과 시 FAILURE + 안내 메시지 | `analyses/tasks.py` |
+| 결과 화면 | 원본 영상만 재생 | **Skeleton Overlay** 영상 재생 (3.7초 60fps 영상 기준 +1.8초, 278KB) | `services/overlay.py`, 테스트 2개 |
 
 **측정 방법·판단**: 컨테이너 안에서 단계별 시간을 쟀더니 CPU에서는 YOLO Pose가 95%(프레임당 43ms)였고, GPU로 바꾼 뒤에는 **HDR(10bit HEVC) 휴대폰 영상의 디코딩·색 변환**이 대부분이었습니다.
 
@@ -382,7 +387,7 @@ vision_action_platform/
 ├── ai_service/                  # FastAPI
 │   ├── main.py                  # 앱 생성, /health, 시작 시 모델 1회 로드
 │   ├── routers/predictions.py   # POST /predict/video
-│   ├── services/                # model_loader · pose_pipeline · action_inference
+│   ├── services/                # model_loader · pose_pipeline · action_inference · overlay
 │   ├── src/                     # 원본 프로젝트에서 복사한 Feature·Pose 코드
 │   ├── models/                  # joblib·JSON·CSV·YOLO 가중치
 │   ├── scripts/check_model.py   # T01

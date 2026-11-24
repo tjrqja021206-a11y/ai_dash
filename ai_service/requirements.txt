@@ -9,5 +9,6 @@ scikit-learn==1.9.1             # ★ 모델 학습 버전과 동일해야 함
 numpy==2.5.4
 pandas==3.1.1
 joblib==1.6.0
+av==19.0.2                      # Overlay 결과 영상 H.264 인코딩 (OpenCV pip 빌드에는 H.264 인코더 없음)
 torch==2.15.0                   # Docker에서는 CPU 빌드 (Dockerfile의 extra-index-url)
 torchvision==0.29.2

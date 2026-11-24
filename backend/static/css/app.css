@@ -58,9 +58,11 @@ button { font: inherit; cursor: pointer; }
 .badge.s-STARTED { background: var(--s-started); } .badge.s-SUCCESS { background: var(--s-success); } .badge.s-FAILURE { background: var(--s-failure); }
 .bar { width: 80px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 2px; }
 .bar span { display: block; height: 100%; background: var(--accent); }
-.preview { width: 100%; max-height: 360px; margin-top: 12px; border-radius: 6px; background: #000; }
+.preview { width: 100%; max-height: 480px; margin-top: 12px; border-radius: 6px; background: #000; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
 .stat span { color: var(--muted); font-size: .85rem; display: block; } .stat strong { font-size: 1.6rem; }
 .chart-box { position: relative; height: 260px; } .chart-box.tall { height: 480px; } .chart-box.short { height: 120px; }
 code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+.overlay-title { margin: 16px 0 0; font-size: 1rem; }
+.overlay-title .muted { font-weight: normal; font-size: 0.85rem; }

@@ -18,9 +18,22 @@ def _post_video(url: str, path: Path) -> requests.Response:
     with open(path, "rb") as file:
         return requests.post(
             url,
+            params={"overlay": "true"} if settings.ANALYSIS_OVERLAY else None,
             files={"file": (Path(path).name, file, "video/mp4")},
             timeout=(10, settings.FASTAPI_TIMEOUT_SECONDS),
         )
+
+
+def download_overlay(overlay_url: str) -> bytes:
+    """FastAPI가 만든 Overlay MP4를 받아옵니다 (서버는 한 번 내려주면 삭제)."""
+    url = f"{settings.FASTAPI_URL.rstrip('/')}/{overlay_url.lstrip('/')}"
+    try:
+        response = requests.get(url, timeout=(10, 60))
+    except requests.RequestException as error:
+        raise AIServiceError(f"Overlay 영상을 받지 못했습니다: {error}") from error
+    if response.status_code != 200 or not response.content:
+        raise AIServiceError(f"Overlay 영상을 받지 못했습니다 (HTTP {response.status_code})")
+    return response.content
 
 
 def predict_video(path: Path) -> dict:

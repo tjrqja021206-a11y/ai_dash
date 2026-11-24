@@ -10,12 +10,13 @@ from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.core.files import File
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
 from .camera_capture import CameraError, capture_clip
 from .models import AnalysisJob, PersonPrediction
-from .services import AIServiceError, predict_video
+from .services import AIServiceError, download_overlay, predict_video
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,23 @@ def _obtain_video(job: AnalysisJob) -> Path:
     return Path(job.video.path)
 
 
+def _save_overlay(job: AnalysisJob, result: dict) -> None:
+    """AI 서버가 만든 Overlay 영상을 받아 media/overlays/에 저장. 실패해도 분석 결과는 유지."""
+    overlay = result.get("overlay") or {}
+    if not overlay.get("url"):
+        if result.get("overlay_error"):
+            logger.warning("작업 #%s Overlay 없음: %s", job.pk, result["overlay_error"])
+        return
+    try:
+        content = download_overlay(overlay["url"])
+    except AIServiceError as error:
+        logger.warning("작업 #%s %s", job.pk, error)
+        return
+    if job.overlay_video:
+        job.overlay_video.delete(save=False)  # 재실행 시 이전 파일 정리
+    job.overlay_video.save(f"overlay_job_{job.pk}.mp4", ContentFile(content), save=False)
+
+
 @shared_task(
     bind=True,
     # soft 제한을 넘으면 SoftTimeLimitExceeded로 FAILURE를 기록하고, 그래도 안 끝나면 30초 뒤 강제 종료
@@ -69,6 +87,8 @@ def run_analysis(self, job_id: int) -> str:
         video_path = _obtain_video(job)
         _set_stage(job, "AI 분석 중")
         result = predict_video(video_path)
+        _set_stage(job, "결과 저장")
+        _save_overlay(job, result)
 
         with transaction.atomic():
             job.predictions.all().delete()  # 재실행 시 중복 방지

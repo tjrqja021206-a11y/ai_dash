@@ -64,10 +64,11 @@ class AnalysisJobViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import ValidationError
 
             raise ValidationError("처리 중인 작업은 삭제할 수 없습니다. 완료 후 삭제하세요.")
-        video = instance.video
+        files = [instance.video, instance.overlay_video]
         instance.delete()  # PersonPrediction은 CASCADE로 함께 삭제
-        if video:
-            video.delete(save=False)
+        for file in files:
+            if file:
+                file.delete(save=False)
 
     @action(detail=True, methods=["get"])
     def status(self, request, pk=None):

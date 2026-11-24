@@ -11,6 +11,7 @@ clip_vectors()·run_fold()와 같은 순서로 계산합니다.
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
@@ -30,6 +31,9 @@ from src.motion_capture_features import (
     vertical_speed_features,
     window_stats,
 )
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class VideoTooShortError(Exception):
@@ -112,7 +116,8 @@ class ActionInferenceService:
     # ------------------------------------------------
     # 영상 한 건 처리
     # ------------------------------------------------
-    def analyze_video(self, path: Path) -> dict:
+    def analyze_video(self, path: Path, overlay_dir: Path | None = None) -> dict:
+        """overlay_dir를 주면 Skeleton Overlay 영상도 만들어 응답의 overlay에 정보를 넣습니다."""
         started = time.perf_counter()
         meta = read_video_meta(path)
         if 0 < meta.duration_sec < self.min_track_sec:
@@ -143,6 +148,24 @@ class ActionInferenceService:
         else:
             status, message = "no_person", "영상에서 사람을 찾지 못했습니다."
 
+        inference_ms = int((time.perf_counter() - started) * 1000)
+        overlay, overlay_error = None, None
+        if overlay_dir is not None and tracks:
+            from services.overlay import render_overlay
+
+            try:
+                info = render_overlay(
+                    path, meta, tracks,
+                    {p["track_id"]: p for p in predictions},
+                    overlay_dir,
+                    analysis_stride=self.pipeline.frame_stride(meta.fps),
+                )
+                overlay = {k: v for k, v in info.items() if k != "path"}
+                overlay["url"] = f"/overlay/{info['id']}"
+            except Exception as error:  # Overlay 실패가 예측 결과를 막지 않게 함
+                logger.exception("Overlay 생성 실패")
+                overlay_error = f"Overlay 영상을 만들지 못했습니다: {error}"
+
         return {
             "status": status,
             "message": message,
@@ -150,5 +173,8 @@ class ActionInferenceService:
             "predictions": predictions,
             "skipped_track_ids": skipped,
             "uncertain_threshold": self.uncertain,
-            "processing_ms": int((time.perf_counter() - started) * 1000),
+            "processing_ms": inference_ms,
+            "overlay": overlay,
+            "overlay_error": overlay_error,
+            "total_ms": int((time.perf_counter() - started) * 1000),
         }
