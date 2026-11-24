@@ -4,34 +4,27 @@
 {% block content %}
 <div class="grid-2">
   <section class="card">
-    <h1>AI 동작 분석</h1>
-    <div class="tabs" role="tablist">
-      <button type="button" class="tab active" data-mode="UPLOAD">영상 업로드</button>
-      <button type="button" class="tab" data-mode="IP_WEBCAM">IP Webcam</button>
+    <div class="card-head"><h1 style="margin:0">AI 동작 분석</h1></div>
+    <div class="tabs" role="tablist" aria-label="입력 방식">
+      <button type="button" class="tab active" data-mode="UPLOAD" role="tab">영상 업로드</button>
+      <button type="button" class="tab" data-mode="IP_WEBCAM" role="tab">IP Webcam</button>
     </div>
 
     <form id="analysis-form" class="stack" enctype="multipart/form-data">
       {% csrf_token %}
       <input type="hidden" name="input_type" value="UPLOAD">
 
-      <div class="mode mode-UPLOAD">
-        <label>영상 파일 (mp4·avi·mov, 사람이 1~10초 이상 보이는 짧은 영상)
+      <div class="mode mode-UPLOAD stack">
+        <label>영상 파일
           <input type="file" name="video" accept="video/*">
+          <span class="hint">mp4·avi·mov·mkv·webm, 최대 100MB · 동작 1번이 담긴 2~10초 영상 권장</span>
         </label>
       </div>
 
-      <div class="mode mode-IP_WEBCAM" hidden>
+      <div class="mode mode-IP_WEBCAM stack" hidden>
         {% if cameras %}
-          <label>카메라
-            <select name="camera_name">
-              {% for name in cameras %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-            </select>
-          </label>
-          <label>수집 시간(초)
-            <input type="number" name="capture_seconds" value="{{ capture_seconds }}" min="{{ min_seconds }}" max="{{ max_seconds }}">
-          </label>
           <div class="cam-preview">
-            <div class="cam-frame" id="cam-frame">
+            <div class="cam-frame" id="cam-frame" data-empty="미리보기가 꺼져 있습니다">
               <img id="cam-img" alt="카메라 실시간 미리보기">
               <span id="cam-rec" class="cam-rec" hidden>● 녹화 중</span>
             </div>
@@ -40,20 +33,38 @@
               <button type="button" id="cam-toggle" class="secondary">미리보기 켜기</button>
             </div>
           </div>
-          <p class="help">‘AI 분석 시작’을 누르면 서버가 카메라에 연결해 지정한 시간 동안 영상을 받습니다. 그 시간 동안 카메라 앞에서 동작하세요.<br>
-            <strong>정확도 팁</strong>: 머리부터 발끝까지 화면에 들어오게 2~3m 떨어지고, 사람이 <em>서 있는 모습</em>으로 보이게 휴대폰을 고정하세요. 미리보기 테두리가 <span class="ok-text">초록</span>이면 준비 완료입니다.</p>
+          <div class="row-2">
+            <label>카메라
+              <select name="camera_name">
+                {% for name in cameras %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>수집 시간 (초)
+              <input type="number" name="capture_seconds" value="{{ capture_seconds }}" min="{{ min_seconds }}" max="{{ max_seconds }}">
+            </label>
+          </div>
+          <div class="tip">
+            <strong>정확도를 높이려면</strong>
+            <ul>
+              <li>휴대폰을 <strong>고정</strong>하고 2~3m 떨어져 <strong>머리부터 발끝까지</strong> 보이게 서세요.</li>
+              <li>미리보기 테두리가 <span class="ok-text">초록</span>이 되면 ‘AI 분석 시작’을 누르세요.</li>
+              <li>녹화 초가 세어지는 동안 <strong>제자리에서 동작을 한 번</strong> 하세요.</li>
+            </ul>
+          </div>
         {% else %}
           <p class="alert error">허용된 카메라가 없습니다. 관리자가 <code>.env</code>의 <code>ALLOWED_CAMERAS</code>를 설정해야 합니다.</p>
         {% endif %}
       </div>
 
-      <label>수행하려는 동작 (선택, 정답이 아닌 참고용)
+      <label><span>수행하려는 동작 <span class="hint">선택 · 정답이 아닌 비교용 참고</span></span>
         <select name="expected_action">
           <option value="">선택 안 함</option>
           {% for aid, label, name in actions %}<option value="{{ aid }}">{{ aid }} {{ name }} ({{ label }})</option>{% endfor %}
         </select>
       </label>
-      <label>제목 (선택) <input type="text" name="title" maxlength="100"></label>
+      <label><span>제목 <span class="hint">선택</span></span>
+        <input type="text" name="title" maxlength="100" placeholder="예: 앞차기 연습 1">
+      </label>
 
       <button type="submit" class="primary big" id="start-btn">AI 분석 시작</button>
       <div id="form-error" class="alert error" hidden></div>
@@ -61,31 +72,42 @@
   </section>
 
   <section class="card" id="result-card">
-    <h2>분석 결과 <span id="job-label" class="muted"></span></h2>
+    <div class="card-head"><h2>분석 결과 <span id="job-label" class="muted"></span></h2></div>
     <ol class="steps" id="steps">
       <li data-status="PENDING">대기</li>
       <li data-status="STARTED">처리 중</li>
-      <li data-status="DONE">완료 / 실패</li>
+      <li data-status="DONE">완료</li>
     </ol>
-    <p id="stage" class="muted">분석을 시작하면 여기에 진행 상태가 표시됩니다.</p>
+    <p id="stage" class="stage">왼쪽에서 영상을 고르거나 카메라를 연결한 뒤 ‘AI 분석 시작’을 누르세요.</p>
     <!-- IP Webcam 녹화 중: 멀리서도 보이게 큰 초 카운터 + 진행 막대 -->
     <div id="rec-box" class="rec-box" hidden>
       <div class="rec-label">● 녹화 중 · 지금 동작하세요</div>
       <div id="rec-counter" class="rec-counter"></div>
       <div class="rec-track"><span id="rec-bar"></span></div>
     </div>
-    <div id="result"></div>
+    <div id="result">
+      <div class="empty-state"><strong>아직 분석한 결과가 없습니다</strong>사람마다 예측 동작과 신뢰도, 관절이 그려진 영상이 여기에 표시됩니다.</div>
+    </div>
   </section>
 </div>
 
 <section class="card">
-  <h2>최근 분석 이력</h2>
-  <table class="table" id="history">
-    <thead><tr><th>ID</th><th>입력</th><th>제목</th><th>수행하려던 동작</th><th>상태</th><th>예측</th><th>AI 처리</th><th>요청 시각</th><th></th></tr></thead>
-    <tbody><tr><td colspan="9" class="muted">불러오는 중…</td></tr></tbody>
-  </table>
+  <div class="card-head">
+    <h2>최근 분석 이력</h2>
+    <span class="muted hide-sm">‘보기’를 누르면 위에 결과가 열립니다</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table" id="history">
+      <thead><tr>
+        <th>ID</th><th>입력</th><th class="hide-sm">제목</th><th class="hide-sm">수행하려던 동작</th>
+        <th>상태</th><th>예측</th><th class="hide-sm num">AI 처리</th><th class="hide-sm">요청 시각</th><th></th>
+      </tr></thead>
+      <tbody><tr><td colspan="9" class="muted">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
   <p class="help">⚠ 학습하지 않은 동작에도 모델은 17개 중 하나를 출력합니다. 신뢰도 {{ uncertain_threshold }} 미만은 ‘판단 불확실’로 표시합니다. 예측은 참고용이며 위험행동 판정이 아닙니다.</p>
 </section>
 {{ uncertain_threshold|json_script:"uncertain-threshold" }}
+{{ actions|json_script:"actions-data" }}
 {% endblock %}
 {% block scripts %}<script src="{% static 'js/analyses.js' %}"></script>{% endblock %}

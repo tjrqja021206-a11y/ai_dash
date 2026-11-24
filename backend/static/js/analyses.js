@@ -16,7 +16,13 @@
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString("ko-KR") : "-");
   const STATUS_TEXT = { PENDING: "대기", STARTED: "처리 중", SUCCESS: "완료", FAILURE: "실패" };
-  const LOW_KEYPOINT = 0.6;  // 업로드(전신) 영상은 0.95 이상, 몸 일부만 보이면 0.3~0.5
+  const LOW_KEYPOINT = 0.6;
+  // A001~A017 → 한글 동작 이름 (템플릿이 넘겨 준 [id, label, name] 목록)
+  const ACTIONS = JSON.parse(document.getElementById("actions-data").textContent);
+  const NAME_BY_ID = Object.fromEntries(ACTIONS.map(([id, , name]) => [id, name]));
+  const actionName = (id, label) => NAME_BY_ID[id] || label || id;
+  const shortTime = (iso) => (iso ? new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-");
+  let currentJob = null;  // 업로드(전신) 영상은 0.95 이상, 몸 일부만 보이면 0.3~0.5
 
   // ---------- IP Webcam 실시간 미리보기 ----------
   // 0.2초마다 서버에 현재 화면을 요청 (서버가 카메라 사진을 가져와 관절을 그려 줌)
@@ -44,8 +50,16 @@
     previewOn = on;
     clearTimeout(previewTimer);
     camToggle.textContent = on ? "미리보기 끄기" : "미리보기 켜기";
-    if (on) { camStatus.textContent = "카메라에 연결 중…"; previewLoop(); }
-    else { camStatus.textContent = "미리보기가 꺼져 있습니다."; camFrame.className = "cam-frame"; }
+    if (on) {
+      camStatus.textContent = "카메라에 연결 중…";
+      camFrame.dataset.empty = "카메라 화면을 가져오는 중…";
+      previewLoop();
+    } else {
+      camStatus.textContent = "미리보기가 꺼져 있습니다.";
+      camFrame.className = "cam-frame";
+      camFrame.dataset.empty = "미리보기가 꺼져 있습니다";
+      camImg.removeAttribute("src");
+    }
   }
 
   async function previewLoop() {
@@ -74,6 +88,7 @@
     } catch (err) {
       camStatus.textContent = err.message;
       camFrame.className = "cam-frame error";
+      camFrame.dataset.empty = "카메라에 연결할 수 없습니다";
       delay = 2000;  // 카메라가 꺼져 있으면 2초 뒤 다시 시도
     }
     if (previewOn) previewTimer = setTimeout(previewLoop, delay);
@@ -191,7 +206,8 @@
   function watchJob(id) {
     clearTimeout(pollTimer);
     jobLabel.textContent = `#${id}`;
-    resultEl.innerHTML = "";
+    resultEl.innerHTML = `<div class="empty-state"><strong>분석 중입니다</strong>완료되면 사람별 결과와 관절 영상이 여기에 표시됩니다.</div>`;
+    markSelected(id);
     history.replaceState(null, "", `?job=${id}`);
     const tick = async () => {
       try {
@@ -223,7 +239,8 @@
     const job = await res.json();
     setSteps(job.status);
     stageEl.textContent = `${job.status_display} · ${job.input_type_display}` +
-      (job.camera_name ? ` (${esc(job.camera_name)}, ${job.capture_seconds}초)` : "");
+      (job.camera_name ? ` (${esc(job.camera_name)}, ${job.capture_seconds}초)` : "") +
+      (job.title ? ` · ${job.title}` : "");
 
     let html = "";
     if (job.status === "FAILURE") {
@@ -231,7 +248,6 @@
     } else if (job.predictions.length === 0) {
       html += `<div class="alert warn">${esc(job.result_message || "예측 결과가 없습니다.")}</div>`;
     } else {
-      html += `<p class="muted">${esc(job.result_message)}</p>`;
       // 관절 신뢰도가 낮으면 동작 신뢰도도 낮아짐 → 원인(입력 품질)과 해결 방법을 먼저 알려 줌
       const lowQuality = job.predictions.filter((p) => p.mean_keypoint_conf != null && p.mean_keypoint_conf < LOW_KEYPOINT);
       if (lowQuality.length) {
@@ -239,38 +255,55 @@
           몸 일부가 화면 밖이거나, 옆으로 누운 화면이거나, 흔들리면 관절을 잘 찾지 못해 동작 신뢰도도 낮아집니다.
           머리부터 발끝까지 보이게 2~3m 떨어져, 휴대폰을 고정하고 밝은 곳에서 다시 시도하세요.</div>`;
       }
-      html += `<table class="table"><thead><tr><th>Track ID</th><th>예측 동작</th><th>신뢰도</th><th>후보 2·3위</th><th>창 수</th><th>보인 시간</th><th>관절 신뢰도</th></tr></thead><tbody>`;
-      for (const p of job.predictions) {
-        const pct = Math.round(p.confidence * 100);
-        const others = p.top3.slice(1).map((t) => `${esc(t.action_label)} ${Math.round(t.probability * 100)}%`).join(", ");
-        html += `<tr class="${p.is_uncertain ? "uncertain" : ""}">
-          <td>#${p.track_id}</td>
-          <td><strong>${esc(p.action_name)}</strong><br><span class="muted">${esc(p.action_id)} ${esc(p.action_label)}</span>
-              ${p.is_uncertain ? '<br><span class="badge s-FAILURE">판단 불확실</span>' : ""}</td>
-          <td><div class="bar"><span style="width:${pct}%"></span></div>${pct}%</td>
-          <td class="muted">${others}</td>
-          <td>${p.window_count}</td>
-          <td>${p.duration_sec}초</td>
-          <td>${p.mean_keypoint_conf ?? "-"}${p.mean_keypoint_conf != null && p.mean_keypoint_conf < LOW_KEYPOINT ? '<br><span class="badge s-FAILURE">품질 낮음</span>' : ""}</td></tr>`;
-      }
-      html += `</tbody></table>`;
+      html += `<p class="result-summary">${esc(job.result_message)}</p>`;
+      for (const p of job.predictions) html += personCard(p, job);
     }
     const facts = [
-      job.expected_action ? `수행하려던 동작: ${esc(job.expected_action)} ${esc(job.expected_action_name)}` : null,
-      job.video_duration_sec != null ? `영상 ${job.video_duration_sec}초 · ${job.video_fps}fps` : null,
-      job.processing_ms != null ? `AI 처리 ${(job.processing_ms / 1000).toFixed(1)}초` : null,
-      job.total_seconds != null ? `요청~완료 ${job.total_seconds}초` : null,
+      job.expected_action ? `수행하려던 동작 <b>${esc(job.expected_action)} ${esc(job.expected_action_name)}</b>` : null,
+      job.video_duration_sec != null ? `영상 <b>${job.video_duration_sec}초</b> · ${job.video_fps}fps` : null,
+      job.processing_ms != null ? `AI 처리 <b>${(job.processing_ms / 1000).toFixed(1)}초</b>` : null,
+      job.total_seconds != null ? `요청~완료 <b>${job.total_seconds}초</b>` : null,
     ].filter(Boolean);
-    if (facts.length) html += `<p class="muted">${facts.join(" · ")}</p>`;
+    if (facts.length) html += `<div class="facts">${facts.map((f) => `<span class="chip">${f}</span>`).join("")}</div>`;
     if (job.overlay_url) {
       // Skeleton Overlay가 있으면 그것을 먼저 보여 주고, 원본은 링크로
-      html += `<h3 class="overlay-title">Skeleton Overlay <span class="muted">사람별 관절·동작·신뢰도 (? = 판단 불확실)</span></h3>
-        <video src="${esc(job.overlay_url)}" controls muted playsinline loop class="preview"></video>`;
-      if (job.video_url) html += `<p class="muted"><a href="${esc(job.video_url)}" target="_blank" rel="noopener">원본 영상 보기</a></p>`;
+      html += `<div class="video-head"><h3>Skeleton Overlay</h3>
+          ${job.video_url ? `<a href="${esc(job.video_url)}" target="_blank" rel="noopener">원본 영상 보기 ↗</a>` : ""}</div>
+        <video src="${esc(job.overlay_url)}" controls muted playsinline loop class="preview"></video>
+        <p class="help">사람마다 색이 다르고, 이름표의 <b>?</b>는 판단 불확실입니다.</p>`;
     } else if (job.video_url) {
-      html += `<video src="${esc(job.video_url)}" controls muted class="preview"></video>`;
+      html += `<div class="video-head"><h3>영상</h3></div><video src="${esc(job.video_url)}" controls muted playsinline class="preview"></video>`;
     }
     resultEl.innerHTML = html;
+    markSelected(id);
+  }
+
+  // 사람 1명의 결과 카드: 큰 동작 이름·신뢰도, 다른 후보, 입력 품질
+  function personCard(p, job) {
+    const pct = Math.round(p.confidence * 100);
+    const lowKp = p.mean_keypoint_conf != null && p.mean_keypoint_conf < LOW_KEYPOINT;
+    const matches = job.expected_action ? (job.expected_action === p.action_id) : null;
+    const badges = [
+      p.is_uncertain ? `<span class="badge warn">판단 불확실</span>` : `<span class="badge s-SUCCESS">판단 확실</span>`,
+      matches === true ? `<span class="badge soft">수행하려던 동작과 일치</span>` : "",
+      matches === false ? `<span class="badge soft">수행하려던 동작과 다름</span>` : "",
+    ].join("");
+    const alts = p.top3.slice(1).map((t) =>
+      `<span class="chip">${esc(actionName(t.action_id, t.action_label))} <b>${Math.round(t.probability * 100)}%</b></span>`).join("");
+    return `<article class="person-card ${p.is_uncertain ? "uncertain" : ""}">
+      <div class="pc-top"><span class="pc-track">사람 #${p.track_id}</span><span class="pc-badges">${badges}</span></div>
+      <div class="pc-main">
+        <div class="pc-action"><strong>${esc(p.action_name)}</strong><small>${esc(p.action_id)} · ${esc(p.action_label)}</small></div>
+        <div class="pc-conf"><b>${pct}%</b><span>신뢰도</span></div>
+      </div>
+      <div class="conf-bar"><span style="width:${pct}%"></span></div>
+      ${alts ? `<div class="pc-alt">다른 후보 ${alts}</div>` : ""}
+      <dl class="pc-meta">
+        <div><dt>관절 신뢰도</dt><dd class="${lowKp ? "bad" : ""}">${p.mean_keypoint_conf != null ? Math.round(p.mean_keypoint_conf * 100) + "%" : "-"}${lowKp ? " · 낮음" : ""}</dd></div>
+        <div><dt>보인 시간</dt><dd>${p.duration_sec}초</dd></div>
+        <div><dt>분석 구간</dt><dd>${p.window_count}개</dd></div>
+      </dl>
+    </article>`;
   }
 
   // ---------- 최근 이력 ----------
@@ -281,17 +314,26 @@
     const { results } = await res.json();
     if (!results.length) { tbody.innerHTML = `<tr><td colspan="9" class="muted">아직 분석 기록이 없습니다.</td></tr>`; return; }
     tbody.innerHTML = results.map((job) => {
-      const preds = job.predictions.map((p) => `#${p.track_id} ${esc(p.action_label)} ${Math.round(p.confidence * 100)}%${p.is_uncertain ? "?" : ""}`).join("<br>") || "-";
-      return `<tr>
-        <td>#${job.id}</td><td>${esc(job.input_type_display)}</td><td>${esc(job.title) || "-"}</td>
-        <td>${job.expected_action ? esc(job.expected_action + " " + job.expected_action_name) : "-"}</td>
+      const preds = job.predictions.map((p) =>
+        `${esc(actionName(p.action_id, p.action_label))} <b>${Math.round(p.confidence * 100)}%</b>${p.is_uncertain ? ' <small>불확실</small>' : ""}`
+      ).join("<br>") || '<span class="muted">-</span>';
+      return `<tr data-row="${job.id}">
+        <td>#${job.id}</td>
+        <td>${job.input_type === "IP_WEBCAM" ? "웹캠" : "업로드"}</td>
+        <td class="hide-sm">${esc(job.title) || '<span class="muted">-</span>'}</td>
+        <td class="hide-sm">${job.expected_action ? esc(job.expected_action + " " + job.expected_action_name) : '<span class="muted">-</span>'}</td>
         <td><span class="badge s-${job.status}">${esc(job.status_display)}</span></td>
-        <td>${preds}</td>
-        <td>${job.processing_ms != null ? (job.processing_ms / 1000).toFixed(1) + "초" : "-"}</td>
-        <td>${fmtTime(job.created_at)}</td>
-        <td class="actions"><button type="button" class="link" data-view="${job.id}">상세</button>
-            <button type="button" class="link danger" data-delete="${job.id}" ${job.status === "STARTED" ? "disabled" : ""}>삭제</button></td></tr>`;
+        <td class="pred-cell">${preds}</td>
+        <td class="hide-sm num">${job.processing_ms != null ? (job.processing_ms / 1000).toFixed(1) + "초" : "-"}</td>
+        <td class="hide-sm">${shortTime(job.created_at)}</td>
+        <td class="actions"><button type="button" class="link" data-view="${job.id}">보기</button><button type="button" class="link danger" data-delete="${job.id}" ${job.status === "STARTED" ? "disabled" : ""}>삭제</button></td></tr>`;
     }).join("");
+    if (currentJob) markSelected(currentJob);
+  }
+
+  function markSelected(id) {
+    currentJob = id;
+    document.querySelectorAll("#history tr[data-row]").forEach((tr) => tr.classList.toggle("selected", Number(tr.dataset.row) === Number(id)));
   }
 
   document.querySelector("#history").addEventListener("click", async (event) => {

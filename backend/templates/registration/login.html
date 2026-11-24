@@ -2,7 +2,11 @@
 {% block title %}로그인{% endblock %}
 {% block content %}
 <section class="card narrow">
-  <h1>로그인</h1>
+  <div class="auth-head">
+    <div class="brand-mark" aria-hidden="true">VA</div>
+    <h1>로그인</h1>
+    <p class="muted">영상 업로드·IP Webcam으로 17개 동작을 분석합니다</p>
+  </div>
   {% if form.errors %}<div class="alert error">아이디 또는 비밀번호가 올바르지 않습니다.</div>{% endif %}
   {% if next and user.is_authenticated %}<div class="alert error">이 페이지에 접근할 권한이 없습니다.</div>{% endif %}
   <form method="post" class="stack">
@@ -10,8 +14,8 @@
     <label>아이디 {{ form.username }}</label>
     <label>비밀번호 {{ form.password }}</label>
     <input type="hidden" name="next" value="{{ next }}">
-    <button type="submit" class="primary">로그인</button>
+    <button type="submit" class="primary big">로그인</button>
   </form>
-  <p class="muted">계정이 없나요? <a href="{% url 'signup' %}">회원가입</a></p>
+  <p class="muted auth-foot">계정이 없나요? <a href="{% url 'signup' %}">회원가입</a></p>
 </section>
 {% endblock %}

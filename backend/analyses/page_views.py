@@ -65,6 +65,7 @@ def dashboard(request):
         "failure_jobs": status_counts.get(AnalysisJob.Status.FAILURE, 0),
         "avg_seconds": round(avg_ms / 1000, 1) if avg_ms else None,
         "recent_jobs": AnalysisJob.objects.select_related("user")
-        .annotate(n_pred=Count("predictions"))[:15],
+        .annotate(n_pred=Count("predictions"))
+        .order_by("-created_at")[:15],
     }
     return render(request, "analyses/dashboard.html", context)
