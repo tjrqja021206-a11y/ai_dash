@@ -6,3 +6,5 @@ redis==8.2.0
 psycopg[binary]==3.3.9            # PostgreSQL 드라이버
 requests==2.34.2                  # Worker → FastAPI HTTP 호출
 opencv-python-headless==5.1.0.95  # IP Webcam 프레임 수집 (camera_capture.py)
+gunicorn==27.0.1                  # 운영용 WSGI 서버 (runserver 대체, 동시 요청 처리)
+whitenoise==6.12.0                # gunicorn에서 정적 파일(CSS·JS·Admin) 제공

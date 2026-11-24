@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.core.files import File
 from django.db import transaction
@@ -44,7 +45,12 @@ def _obtain_video(job: AnalysisJob) -> Path:
     return Path(job.video.path)
 
 
-@shared_task(bind=True)
+@shared_task(
+    bind=True,
+    # soft 제한을 넘으면 SoftTimeLimitExceeded로 FAILURE를 기록하고, 그래도 안 끝나면 30초 뒤 강제 종료
+    soft_time_limit=settings.ANALYSIS_TIME_LIMIT_SECONDS,
+    time_limit=settings.ANALYSIS_TIME_LIMIT_SECONDS + 30,
+)
 def run_analysis(self, job_id: int) -> str:
     try:
         job = AnalysisJob.objects.get(pk=job_id)
@@ -100,6 +106,11 @@ def run_analysis(self, job_id: int) -> str:
 
     except (CameraError, AIServiceError, OSError) as error:
         message = str(error)
+    except SoftTimeLimitExceeded:
+        message = (
+            f"분석 시간이 제한({settings.ANALYSIS_TIME_LIMIT_SECONDS}초)을 넘어 중단했습니다. "
+            "더 짧은 영상으로 다시 시도하세요."
+        )
     except Exception as error:  # 예상 못 한 오류도 FAILURE로 남김
         logger.exception("작업 #%s 예기치 않은 오류", job_id)
         message = f"예기치 않은 오류: {error}"

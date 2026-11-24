@@ -33,6 +33,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # gunicorn은 정적 파일을 직접 주지 않으므로 WhiteNoise가 /static/을 제공
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -97,6 +99,7 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+WHITENOISE_USE_FINDERS = True  # collectstatic 없이 static/·Admin 정적 파일을 바로 제공
 
 # 업로드 영상·카메라 수집 영상 저장 위치 (Django와 Celery가 같은 볼륨을 공유)
 MEDIA_URL = "media/"
@@ -141,6 +144,13 @@ CELERY_TIMEZONE = TIME_ZONE
 # 컨테이너끼리는 localhost가 아니라 Compose 서비스 이름(fastapi)으로 통신합니다.
 FASTAPI_URL = os.getenv("FASTAPI_URL", "http://localhost:8001")
 FASTAPI_TIMEOUT_SECONDS = int(os.getenv("FASTAPI_TIMEOUT_SECONDS", "300"))
+# AI 서버 재시작·모델 로딩 중(연결 실패·503)일 때 재시도 횟수와 간격(초, 회차마다 늘어남)
+FASTAPI_RETRIES = int(os.getenv("FASTAPI_RETRIES", "3"))
+FASTAPI_RETRY_DELAY_SECONDS = float(os.getenv("FASTAPI_RETRY_DELAY_SECONDS", "3"))
+# Celery 작업 하나의 최대 시간: 카메라 수집 + AI 응답 대기 + 여유. 넘으면 FAILURE로 기록
+ANALYSIS_TIME_LIMIT_SECONDS = int(
+    os.getenv("ANALYSIS_TIME_LIMIT_SECONDS", str(FASTAPI_TIMEOUT_SECONDS + 120))
+)
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024

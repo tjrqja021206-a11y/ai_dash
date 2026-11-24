@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import queue
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,6 +70,52 @@ def read_video_meta(path: Path) -> VideoMeta:
     return VideoMeta(fps, count, count / fps if count else 0.0, width, height)
 
 
+_END = object()
+
+
+def prefetch_frames(
+    path: Path, stride: int = 1, buffer: int = 32
+) -> Iterator[tuple[int, np.ndarray | None]]:
+    """별도 스레드에서 OpenCV로 디코딩한 (원본 프레임 번호, 프레임)을 순서대로 돌려줍니다.
+
+    - 디코딩(CPU)과 YOLO 추론(GPU)이 동시에 진행됩니다.
+    - stride=2면 모든 프레임을 grab(압축 해제)하되 BGR 변환(retrieve)은 2장 중 1장만 합니다.
+      건너뛴 프레임은 None으로 넘겨 프레임 수를 세고, 시간은 원본 번호로 계산합니다.
+    - 디코더는 학습 때와 같은 OpenCV라서 회전·HDR 색 변환 결과가 동일합니다.
+    """
+    frames: queue.Queue = queue.Queue(maxsize=buffer)
+    stop = threading.Event()
+
+    def reader():
+        capture = cv2.VideoCapture(str(path))
+        try:
+            index = 0
+            while not stop.is_set() and capture.grab():
+                frame = None
+                if index % stride == 0:
+                    ok, frame = capture.retrieve()
+                    if not ok:
+                        break
+                frames.put((index, frame))
+                index += 1
+        finally:
+            capture.release()
+            frames.put(_END)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        while (item := frames.get()) is not _END:
+            yield item
+    finally:
+        stop.set()
+        while thread.is_alive():  # 중간에 멈춘 경우 reader가 put에서 막히지 않게 비움
+            try:
+                frames.get_nowait()
+            except queue.Empty:
+                thread.join(0.05)
+
+
 class PosePipeline:
     def __init__(self, pose_model_path: Path, tracker_path: Path, project: dict):
         from ultralytics import YOLO  # import가 무거우므로 생성 시점에 로드
@@ -90,26 +138,39 @@ class PosePipeline:
         except ImportError:
             return "cpu"
 
+    def frame_stride(self, fps: float) -> int:
+        """max_process_fps(0이면 끔)보다 빠른 영상은 프레임을 일정 간격으로 건너뜁니다."""
+        max_fps = float(self.project.get("max_process_fps", 0) or 0)
+        if max_fps <= 0 or fps <= max_fps * 1.25:
+            return 1
+        return max(1, round(fps / max_fps))
+
     def extract_tracks(self, path: Path, meta: VideoMeta) -> tuple[dict[int, TrackData], int]:
         """Track ID별 관절 시계열과 실제로 읽은 프레임 수를 반환합니다."""
         min_box_h = float(self.project.get("min_box_height_ratio", 0.0)) * meta.height
         tracks: dict[int, TrackData] = {}
         frames = 0
+        conf_threshold = float(self.project.get("person_confidence", 0.25))
+        image_size = int(self.project.get("image_size", 640))
+        stride = self.frame_stride(meta.fps)
         with self._lock:
-            # persist=False + stream=True: 요청마다 Tracker를 새로 만들어
-            # 이전 영상의 Track ID가 섞이지 않습니다.
-            results = self.model.track(
-                source=str(path),
-                stream=True,
-                persist=False,
-                tracker=self.tracker,
-                conf=float(self.project.get("person_confidence", 0.25)),
-                imgsz=int(self.project.get("image_size", 640)),
-                device=self.device,
-                verbose=False,
-            )
-            for index, result in enumerate(results):
+            first = True
+            for index, frame in prefetch_frames(path, stride):
                 frames += 1
+                if frame is None:
+                    continue  # stride로 건너뛴 프레임
+                # 첫 프레임만 persist=False → 요청마다 Tracker를 새로 만들어
+                # 이전 영상의 Track ID가 섞이지 않고, 이후 프레임은 같은 Tracker를 이어 씁니다.
+                result = self.model.track(
+                    frame,
+                    persist=not first,
+                    tracker=self.tracker,
+                    conf=conf_threshold,
+                    imgsz=image_size,
+                    device=self.device,
+                    verbose=False,
+                )[0]
+                first = False
                 boxes, kps = result.boxes, result.keypoints
                 if boxes is None or kps is None or boxes.id is None:
                     continue

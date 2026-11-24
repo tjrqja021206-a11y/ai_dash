@@ -167,6 +167,53 @@ class AnalysisApiTests(TestCase):
         self.assertEqual(capture.call_args.args[0], "http://192.168.0.10:8080/video")
 
 
+@override_settings(FASTAPI_RETRIES=2, FASTAPI_RETRY_DELAY_SECONDS=0)
+class AIServiceRetryTests(TestCase):
+    """AI 서버 재시작·모델 로딩 중에는 재시도하고, 잘못된 영상(4xx)은 바로 실패."""
+
+    def setUp(self):
+        temp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        temp.write(b"fake")
+        temp.close()
+        self.path = temp.name
+        self.addCleanup(lambda: __import__("os").remove(self.path))
+
+    @staticmethod
+    def response(status, body):
+        fake = mock.Mock(status_code=status)
+        fake.json.return_value = body
+        fake.text = str(body)
+        return fake
+
+    @mock.patch("analyses.services._post_video")
+    def test_retries_connection_error_then_succeeds(self, post):
+        import requests
+
+        from .services import predict_video
+
+        post.side_effect = [requests.ConnectionError(), self.response(200, FAKE_RESULT)]
+        self.assertEqual(predict_video(self.path)["status"], "ok")
+        self.assertEqual(post.call_count, 2)
+
+    @mock.patch("analyses.services._post_video")
+    def test_retries_503_then_gives_up(self, post):
+        from .services import predict_video
+
+        post.return_value = self.response(503, {"detail": "모델이 아직 준비되지 않았습니다."})
+        with self.assertRaisesMessage(AIServiceError, "503"):
+            predict_video(self.path)
+        self.assertEqual(post.call_count, 3)  # 첫 시도 + 재시도 2번
+
+    @mock.patch("analyses.services._post_video")
+    def test_bad_video_not_retried(self, post):
+        from .services import predict_video
+
+        post.return_value = self.response(400, {"detail": "영상 파일을 열 수 없습니다."})
+        with self.assertRaisesMessage(AIServiceError, "영상 파일을 열 수 없습니다"):
+            predict_video(self.path)
+        self.assertEqual(post.call_count, 1)
+
+
 class DashboardAccessTests(TestCase):
     # T08 관리자 화면
     def test_dashboard_staff_only(self):

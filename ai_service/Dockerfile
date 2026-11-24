@@ -12,8 +12,10 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY requirements.txt .
+# torch 빌드 선택: 기본 cpu, GPU는 compose.gpu.yaml에서 cu132(학습 환경과 같은 CUDA 13.2)로 지정
+ARG TORCH_INDEX=cpu
 RUN pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://download.pytorch.org/whl/${TORCH_INDEX} \
     -r requirements.txt
 
 COPY . .

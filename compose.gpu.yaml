@@ -1,0 +1,17 @@
+# NVIDIA GPU가 있는 PC에서만 추가로 겹쳐 쓰는 설정 (fastapi만 GPU 사용)
+#   docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
+# GPU가 없는 PC는 compose.yaml만 사용하면 CPU로 그대로 동작합니다.
+services:
+  fastapi:
+    build:
+      context: ./ai_service
+      args:
+        TORCH_INDEX: cu132
+    image: vision_action_ai_gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

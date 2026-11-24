@@ -49,6 +49,8 @@ docker compose restart
 docker compose exec postgres psql -U vision -d vision_action -c "select id,status from analyses_analysisjob;"
 ```
 
+> **GPU (선택)**: NVIDIA GPU가 있는 PC는 `.env`에 `COMPOSE_FILE=compose.yaml:compose.gpu.yaml`을 넣으면(주석 해제) 같은 `docker compose` 명령으로 fastapi가 CUDA 13.2 torch를 써서 GPU로 추론합니다. GPU가 없으면 그대로 두면 CPU로 동작합니다. 확인: `docker compose exec fastapi python -c "import torch;print(torch.cuda.is_available())"`
+
 > **IP Webcam**: 카메라는 **celery 컨테이너**가 읽습니다. 휴대폰과 PC가 같은 Wi-Fi에 있어야 하고, `.env`의 `ALLOWED_CAMERAS=phone1=http://<휴대폰IP>:8080/video`에 등록된 카메라만 선택할 수 있습니다(사용자가 임의 URL 입력 불가). 변경 후 `docker compose up -d`로 재생성합니다.
 
 ### 2-2. Docker 없이 (개발용)
@@ -306,7 +308,29 @@ sequenceDiagram
 
 **Docker Compose 환경 재확인**: 5개 컨테이너에서 S03 앞차기(S03_A003_T01) 업로드 → POST 0.34초 만에 작업 ID 반환(T05) → Celery·FastAPI 처리 후 SUCCESS, `A003 front_kick` 0.77, AI 9.9초(CPU) (T02) → 재시작 후 DB 유지(T10). 컨테이너 안에서 `docker compose exec django python manage.py test`도 14개 통과.
 
-자동 테스트: `python manage.py test` → 14개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한).
+자동 테스트: `python manage.py test` → 17개 통과 (회원가입·중복·로그인·비로그인 차단, 작업 생성·권한·PATCH 제한·삭제·AI 실패·카메라 실패·대시보드 권한, AI 서버 재시도 3개).
+
+### 7-1-1. 성능 고도화 (속도·안정성)
+
+| 항목 | 변경 전 | 변경 후 | 근거 |
+|---|---|---|---|
+| AI 추론 장치 | CPU (torch cpu) | **GPU RTX 3060** (`compose.gpu.yaml`, torch cu132) | 3.7초 영상 추론 9.0초 → **4.3초** (결과 동일 `front_kick` 0.764) |
+| 웹 서버 | `runserver` (개발용, 1 프로세스) | **gunicorn 3 workers** + WhiteNoise 정적 파일 | 동시 요청 처리, 업로드 중에도 상태 조회 응답 |
+| AI 서버 일시 장애 | 즉시 FAILURE | 연결 실패·503(모델 로딩 중)은 **최대 3번 재시도**(3·6·9초 간격) | `analyses/services.py`, 테스트 3개 |
+| 오래 걸리는 작업 | 제한 없음 (Worker가 묶일 수 있음) | Celery `soft_time_limit`(기본 420초) 초과 시 FAILURE + 안내 메시지 | `analyses/tasks.py` |
+
+**측정 방법·판단**: 컨테이너 안에서 단계별 시간을 쟀더니 CPU에서는 YOLO Pose가 95%(프레임당 43ms)였고, GPU로 바꾼 뒤에는 **HDR(10bit HEVC) 휴대폰 영상의 디코딩·색 변환**이 대부분이었습니다.
+
+- PyAV로 디코딩하면 3.5배 빠르지만 HDR 톤매핑이 달라 학습 때(OpenCV)와 다른 색의 이미지가 들어가므로 **채택하지 않았습니다**.
+- 60fps 영상을 30fps로 건너뛰며 처리하는 옵션(`project.json`의 `max_process_fps`)을 만들고 정답이 있는 34개 영상으로 비교했습니다.
+
+| `max_process_fps` | 정확도 | 평균 신뢰도 | 34개 처리 시간 |
+|---|---|---|---|
+| 0 (모든 프레임, **기본값**) | 34/34 | 0.722 | 233초 |
+| 30 | 34/34 | 0.625 | 129초 |
+| 20 | 34/34 | 0.559 | 96초 |
+
+정확도는 같지만 신뢰도가 떨어지므로(Feature가 학습 분포에서 멀어짐) 기본값은 0(끔)으로 두었습니다. GPU가 없는 PC에서 속도가 중요하면 30으로 바꿀 수 있습니다.
 
 ### 7-2. 캡처 (제출 전 추가)
 
@@ -364,6 +388,7 @@ vision_action_platform/
 │   ├── scripts/check_model.py   # T01
 │   └── project.json             # Pose·Tracking·판단 기준 설정
 ├── compose.yaml                 # django · celery · fastapi · redis · postgres
+├── compose.gpu.yaml             # (선택) fastapi GPU 추론 설정
 ├── .env.example
 └── README.md
 ```
