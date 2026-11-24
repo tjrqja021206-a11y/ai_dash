@@ -1,5 +1,5 @@
 {
-  "condition": "hybrid",
+  "condition": "hybrid+aug(fps+pad+speed:6:0.7)",
   "feature": "hybrid",
   "window_feature": "robust2",
   "clip_model": "clip_model.joblib",
@@ -34,5 +34,8 @@
     "A016",
     "A017"
   ],
-  "person_clip_acc": 0.906
+  "person_clip_acc": 0.906,
+  "augmentation": "fps+pad+speed:6:0.7",
+  "train_tracks": 1785,
+  "trained_with": "scripts/51_train_augmented_motion_model.py (서비스와 같은 59.88fps 보간 경로)"
 }
