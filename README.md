@@ -230,7 +230,7 @@ sequenceDiagram
 
 원본: `subject10_pose_action/scripts/48_test_motion_capture_actions.py`로 학습한 산출물 (S01~S05, 5명 × 17동작 × 3방향 + 좌우반전 증강)
 
-> **현재 서비스 모델은 증강 재학습판입니다** (`subject10_pose_action/scripts/51_train_augmented_motion_model.py`, [7-5](#7-5-기존-영상-증강으로-재학습)). 같은 255개 영상의 관절 좌표를 FPS·정지 구간·속도로 증강해 Feature 규격(175·503)과 17개 동작은 그대로 두고 다시 학습했습니다. 처음 학습한 모델은 `subject10_pose_action/artifacts/motion_capture/`에 그대로 있습니다(되돌리려면 세 파일을 `ai_service/models/`에 복사하고 `project.json`의 `static_trim.enabled`를 `true`로).
+> **현재 서비스 모델은 증강 재학습판입니다** (`training/scripts/51_train_augmented_motion_model.py`, [7-5](#7-5-기존-영상-증강으로-재학습)). 같은 255개 영상의 관절 좌표를 FPS·정지 구간·속도로 증강해 Feature 규격(175·503)과 17개 동작은 그대로 두고 다시 학습했습니다. 처음 학습한 모델은 `subject10_pose_action/artifacts/motion_capture/`에 그대로 있습니다(되돌리려면 세 파일을 `ai_service/models/`에 복사하고 `project.json`의 `static_trim.enabled`를 `true`로).
 
 | 파일 (`ai_service/models/`) | 역할 |
 |---|---|
@@ -415,7 +415,7 @@ Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV �
 
 > 과제 기본 원칙은 "모델을 새로 학습하지 않는다"입니다. 아래는 **새 촬영 없이 기존 255개 영상의 관절 좌표만 증강해** 다시 학습한 선택 확장이며, 처음 모델은 그대로 보관합니다.
 
-**방법** — `subject10_pose_action/scripts/51_train_augmented_motion_model.py`
+**방법** — `training/scripts/51_train_augmented_motion_model.py` (코드·실험 결과는 [`training/`](training/README.md))
 - 46번이 뽑아 둔 관절 CSV를 변형해 학습 데이터를 늘립니다(영상·YOLO를 다시 돌리지 않음). Feature는 **웹 서비스와 같은 코드**(`resample_track` 59.88fps 보간)로 계산해 학습과 추론의 입력을 일치시켰습니다. 이 경로로 학습한 쪽이 48번 방식(CSV 그대로)보다 모든 조건에서 정확했습니다(원본 0.890 vs 0.871, 웹캠15fps 0.800 vs 0.739).
 - 평가는 **사람 교차 검증**(5명 중 1명을 빼고 학습 → 뺀 사람의 실제 영상 51개로 시험, 5회)입니다. 시험 영상은 증강하지 않고, 원본 그대로·웹캠 재현 2가지(8초 수집 앞뒤 정지 구간 + 15fps±20% 또는 60fps + 관절 흔들림)로 시험했습니다.
 
@@ -456,7 +456,7 @@ Overlay(`ai_service/services/overlay.py`): 추론이 끝난 뒤 같은 OpenCV �
 
 **문제** — 증강 모델은 처음 보는 사람의 웹캠 영상을 90% 맞히는데, 화면의 신뢰도(모델 1위 확률)는 평균 0.42였습니다. Random Forest가 17개 동작에 확률을 나눠 주기 때문에 1위 몫이 작게 나옵니다. 그래서 기존 기준(0.4 미만이면 판단 불확실)으로는 **맞힌 결과의 절반 가까이가 '불확실'**로 표시됐습니다.
 
-**방법** — `subject10_pose_action/scripts/51_train_augmented_motion_model.py --oof`로 사람 교차 검증의 **처음 보는 사람 예측 2,295건**(원본 255 + 웹캠 15fps·60fps 각 1,020)을 모으고, `52_fit_confidence_calibration.py`가 1위 확률·2위 확률·차이·비율·엔트로피로 "이 예측이 맞았는가"를 맞히는 로지스틱 회귀를 학습했습니다. 보정기의 성능도 사람 단위로 나눠(4명으로 학습 → 1명으로 확인) 평가했습니다.
+**방법** — `training/scripts/51_train_augmented_motion_model.py --oof`로 사람 교차 검증의 **처음 보는 사람 예측 2,295건**(원본 255 + 웹캠 15fps·60fps 각 1,020)을 모으고, `training/scripts/52_fit_confidence_calibration.py`가 1위 확률·2위 확률·차이·비율·엔트로피로 "이 예측이 맞았는가"를 맞히는 로지스틱 회귀를 학습했습니다. 보정기의 성능도 사람 단위로 나눠(4명으로 학습 → 1명으로 확인) 평가했습니다.
 
 | 표시 값 | 평균 | 실제 정답률 | ECE(낮을수록 숫자가 정확) | 맞음/틀림 구분 AUC |
 |---|---|---|---|---|
@@ -522,6 +522,7 @@ vision_action_platform/
 │   ├── scripts/check_model.py   # T01
 │   ├── scripts/eval_webcam_sim.py # 웹캠 조건 재현 평가 (7-3 문제 3)
 │   └── project.json             # Pose·Tracking·판단 기준 설정
+├── training/                    # (선택 확장) 증강 재학습 51번·신뢰도 보정 52번 스크립트와 실험 결과
 ├── compose.yaml                 # django · celery · fastapi · redis · postgres
 ├── compose.gpu.yaml             # (선택) fastapi GPU 추론 설정
 ├── .env.example

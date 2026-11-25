@@ -42,7 +42,7 @@ def calibrated_confidence(proba: np.ndarray, calibration: dict | None) -> float:
 
     Random Forest의 1위 확률은 17개 동작에 나눠 준 몫이라 실제 정답률보다 훨씬 낮습니다
     (사람 교차 검증: 정답률 0.89인데 평균 1위 확률 0.43). 처음 보는 사람의 예측 2,295건으로 학습한
-    로지스틱 회귀(subject10_pose_action/scripts/52_fit_confidence_calibration.py)로 바꿉니다.
+    로지스틱 회귀(training/scripts/52_fit_confidence_calibration.py)로 바꿉니다.
     입력 Feature 계산은 52번 features()와 같아야 합니다.
     """
     p = np.asarray(proba, dtype=float)
